@@ -47,12 +47,14 @@ if (!app.requestSingleInstanceLock()) {
 
 function createWindow() {
   win = new BrowserWindow({
-    width: 480,
-    height: 860,
+    width: 460,
+    height: 820,
     minWidth: 380,
-    minHeight: 640,
+    minHeight: 600,
     title: 'ProVpn',
-    backgroundColor: '#070b18',
+    backgroundColor: '#0a1417',
+    titleBarStyle: 'hidden',
+    titleBarOverlay: { color: '#0a1417', symbolColor: '#e8f1ed', height: 44 },
     autoHideMenuBar: true,
     icon: path.join(__dirname, 'build', 'icon.png'),
     webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false },

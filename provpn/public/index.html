@@ -7,102 +7,103 @@
 <link rel="icon" href="logo.svg" type="image/svg+xml">
 <link rel="stylesheet" href="style.css">
 </head>
-<body>
-<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
+<body data-mode="off">
+<div class="shell">
 
-<main class="app">
-  <header class="top">
+  <header class="bar">
     <div class="brand">
-      <img src="logo.svg" alt="" width="40" height="40">
-      <span>Pro<b>Vpn</b></span>
+      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3.500 21V12a8.500 8.500 0 0 1 17 0v9"/><path d="M8 21v-8.500a4 4 0 0 1 8 0V21"/></svg>
+      <span>ProVpn</span>
     </div>
-    <div class="pill" id="pill"><span class="dot"></span><span id="pillText">Не защищён</span></div>
   </header>
 
-  <section class="hero">
-    <div class="orb" id="orb">
-      <svg viewBox="0 0 320 320" class="rings" aria-hidden="true">
-        <defs>
-          <linearGradient id="ringG" x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0" stop-color="var(--c1)"/><stop offset="1" stop-color="var(--c2)"/>
-          </linearGradient>
-        </defs>
-        <circle class="ring r1" cx="160" cy="160" r="150"/>
-        <circle class="ring r2" cx="160" cy="160" r="128"/>
-        <circle class="ring r3" cx="160" cy="160" r="106"/>
-      </svg>
-      <button class="power" id="power" aria-label="Подключить или отключить">
-        <svg viewBox="0 0 48 48" width="64" height="64" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round">
-          <path d="M24 6v17"/><path d="M14 11.5a16 16 0 1 0 20 0"/>
-        </svg>
+  <section class="stage" aria-labelledby="status">
+    <svg class="tunnel" id="tunnel" viewBox="0 0 460 440" preserveAspectRatio="xMidYMin slice" aria-hidden="true"></svg>
+    <div class="stage-body">
+      <h1 id="status" aria-live="polite">Не защищено</h1>
+      <p class="status-sub" id="statusSub"></p>
+      <dl class="figures" id="figures" hidden></dl>
+      <button class="toggle" id="toggle" type="button" role="switch" aria-checked="false">
+        <span class="knob" id="knob"></span>
+        <span class="toggle-label" id="toggleLabel">Подключить</span>
       </button>
     </div>
-    <h1 id="title">Нажмите для подключения</h1>
-    <p class="sub" id="sub">Выберите профиль ниже</p>
   </section>
 
-  <section class="stats">
-    <div class="card"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg><div><small>Отправлено</small><b id="tx">0 Б</b></div></div>
-    <div class="card"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg><div><small>Получено</small><b id="rx">0 Б</b></div></div>
-    <div class="card"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><div><small id="hsLabel">Рукопожатие</small><b id="hs">—</b></div></div>
-  </section>
-
-  <section class="panel">
-    <div class="panel-head">
-      <h2>Профили</h2>
-      <div class="row">
-        <button class="ghost" id="subBtn">
-          <svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.700 0l3-3a4 4 0 0 0-5.700-5.700l-1 1M14 10a4 4 0 0 0-5.700 0l-3 3a4 4 0 0 0 5.700 5.700l1-1"/></svg> Подписка
+  <section class="sheet" aria-labelledby="serversTitle">
+    <div class="sheet-head">
+      <h2 id="serversTitle">Серверы</h2>
+      <div class="actions">
+        <button class="btn" id="subBtn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M10 14a4 4 0 0 0 5.700 0l3-3a4 4 0 0 0-5.700-5.700l-1 1M14 10a4 4 0 0 0-5.700 0l-3 3a4 4 0 0 0 5.700 5.700l1-1"/></svg>
+          Подписка
         </button>
-        <button class="ghost" id="addBtn">
-          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Добавить
+        <button class="btn" id="addBtn" type="button">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          Добавить
         </button>
       </div>
     </div>
-    <p class="note" id="note" hidden></p>
-    <ul class="list" id="list"></ul>
-    <ul class="list subs" id="subs"></ul>
-    <p class="empty" id="empty" hidden>
-      <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="32" cy="32" r="24"/><ellipse cx="32" cy="32" rx="10" ry="24"/><path d="M8 32h48M12 20h40M12 44h40"/></svg>
-      Профилей пока нет. Добавьте WireGuard-конфиг вашего сервера.
-    </p>
+
+    <p class="alert" id="alert" role="alert" hidden></p>
+    <div class="groups" id="groups"></div>
+
+    <div class="empty" id="empty" hidden>
+      <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden="true"><path d="M6 42V24a18 18 0 0 1 36 0v18"/><path d="M15 42V26a9 9 0 0 1 18 0v16"/><circle cx="24" cy="30" r="2.500" class="dot"/></svg>
+      <h3>Серверов пока нет</h3>
+      <p>Добавьте ссылку на сервер или подписку. ProVpn найдёт в ней серверы WireGuard, VLESS и Trojan.</p>
+      <div class="actions">
+        <button class="btn primary" id="emptyAdd" type="button">Добавить сервер</button>
+        <button class="btn" id="emptySub" type="button">Добавить подписку</button>
+      </div>
+    </div>
   </section>
+</div>
 
-  <p class="warn" id="warn" hidden></p>
-</main>
+<div class="toast" id="toast" hidden></div>
 
-<dialog id="dlg">
+<dialog id="dlg" aria-labelledby="dlgTitle">
   <form method="dialog" id="form">
-    <h3>Новый профиль</h3>
-    <label>Имя (до 15 символов: A-Z, 0-9, _ -)
-      <input id="fName" maxlength="15" pattern="[A-Za-z0-9_\-]{1,15}" required autocomplete="off">
-    </label>
-    <label>Конфиг WireGuard или ссылка vless:// / trojan://
-      <textarea id="fConf" rows="10" spellcheck="false" placeholder="vless://uuid@host:443?security=reality&#10;trojan://password@host:443&#10;&#10;или WireGuard:&#10;[Interface]&#10;PrivateKey = ...&#10;Address = 10.0.0.2/32&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = host:51820&#10;AllowedIPs = 0.0.0.0/0" required></textarea>
-    </label>
+    <h3 id="dlgTitle">Добавить сервер</h3>
+    <label for="fConf">Ссылка или конфиг</label>
+    <textarea id="fConf" rows="7" spellcheck="false" required placeholder="vless://… или trojan://…&#10;либо WireGuard-конфиг"></textarea>
+    <label for="fName">Название</label>
+    <input id="fName" maxlength="15" pattern="[A-Za-z0-9_\-]{1,15}" required autocomplete="off" placeholder="например, amsterdam">
+    <p class="hint">До 15 символов: латинские буквы, цифры, _ и -</p>
     <input type="file" id="fFile" accept=".conf,text/plain" hidden>
     <p class="err" id="fErr" hidden></p>
-    <div class="row">
-      <button type="button" class="ghost" id="fPick">Загрузить .conf</button>
+    <div class="row-end">
+      <button type="button" class="btn quiet" id="fPick">Открыть .conf</button>
       <span class="grow"></span>
-      <button type="button" class="ghost" id="fCancel">Отмена</button>
-      <button type="submit" class="solid">Сохранить</button>
+      <button type="button" class="btn" id="fCancel">Отмена</button>
+      <button type="submit" class="btn primary">Сохранить</button>
     </div>
   </form>
 </dialog>
 
-<dialog id="dlgSub">
+<dialog id="dlgSub" aria-labelledby="subTitle">
   <form method="dialog" id="formSub">
-    <h3>Подписка по URL</h3>
-    <label>Ссылка на подписку
-      <input id="sUrl" type="url" required autocomplete="off" spellcheck="false" placeholder="https://example.com/sub?token=...">
-    </label>
-    <p class="hint">Поддерживаются ссылки <code>vless://</code>, <code>trojan://</code>, <code>wireguard://</code>, WireGuard .conf и sing-box JSON (в том числе в base64). Другие протоколы (vmess, ss, hysteria) пропускаются. Ссылка хранится только на этом компьютере.</p>
+    <h3 id="subTitle">Добавить подписку</h3>
+    <label for="sUrl">Ссылка на подписку</label>
+    <input id="sUrl" type="url" required autocomplete="off" spellcheck="false" placeholder="https://example.com/sub?token=…">
+    <p class="hint">Подойдут ссылки vless://, trojan://, wireguard://, конфиги WireGuard и sing-box JSON, в том числе в base64. Протоколы vmess, ss и hysteria пропускаются. Ссылка хранится только на этом компьютере.</p>
     <p class="err" id="sErr" hidden></p>
-    <div class="row">
+    <div class="row-end">
       <span class="grow"></span>
-      <button type="button" class="ghost" id="sCancel">Отмена</button>
-      <button type="submit" class="solid" id="sGo">Загрузить</button>
+      <button type="button" class="btn" id="sCancel">Отмена</button>
+      <button type="submit" class="btn primary" id="sGo">Загрузить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgConfirm" aria-labelledby="cTitle">
+  <form method="dialog">
+    <h3 id="cTitle"></h3>
+    <p class="hint" id="cText"></p>
+    <div class="row-end">
+      <span class="grow"></span>
+      <button value="cancel" class="btn">Отмена</button>
+      <button value="ok" class="btn danger" id="cOk">Удалить</button>
     </div>
   </form>
 </dialog>
