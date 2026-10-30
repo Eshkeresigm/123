@@ -39,25 +39,41 @@ jobs:
 
       - name: Smoke-test the desktop app
         run: |
-          $env:PROVPN_PORT = '17980'
-          $p = Start-Process -FilePath dist\ProVpn.exe -PassThru
-          $state = $null
-          for ($i = 0; $i -lt 40 -and -not $state; $i++) {
-            Start-Sleep -Seconds 2
-            try { $state = Invoke-RestMethod http://127.0.0.1:17980/api/state } catch {}
+          # Diagnostics go into annotations because step logs are not retrievable by the author.
+          function Annotate($level, $text) { Write-Host ("::$level::" + ($text -replace "`r?`n", '%0A')) }
+          $failure = $null
+          $diag = New-Object System.Collections.Generic.List[string]
+          try {
+            $env:PROVPN_PORT = '17980'
+            $p = Start-Process -FilePath dist\ProVpn.exe -PassThru -RedirectStandardError err.txt -RedirectStandardOutput out.txt
+            $state = $null
+            for ($i = 0; $i -lt 40 -and -not $state; $i++) {
+              Start-Sleep -Seconds 2
+              try { $state = Invoke-RestMethod http://127.0.0.1:17980/api/state } catch {}
+            }
+            $diag.Add("started pid=$($p.Id) exited=$($p.HasExited)")
+            if (-not $state) { throw 'app did not start serving within 80s' }
+            $diag.Add("state: $($state | ConvertTo-Json -Compress)")
+            if ($state.platform -ne 'win32') { throw "unexpected platform: $($state.platform)" }
+            $page = Invoke-WebRequest http://127.0.0.1:17980/ -UseBasicParsing
+            if ($page.Content -notmatch 'ProVpn') { throw 'UI not served' }
+            Start-Sleep -Seconds 4
+            $wins = Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { "$($_.ProcessName)=[$($_.MainWindowTitle)]" }
+            $diag.Add("windows: $($wins -join '; ')")
+            $procs = Get-Process | Where-Object { $_.ProcessName -like 'ProVpn*' } | ForEach-Object { "$($_.ProcessName)#$($_.Id)" }
+            $diag.Add("procs: $($procs -join ', ')")
+            if (-not (Get-Process | Where-Object { $_.ProcessName -like 'ProVpn*' -and $_.MainWindowTitle -eq 'ProVpn' })) {
+              throw 'no ProVpn application window found'
+            }
+          } catch {
+            $failure = $_.Exception.Message
           }
-          if (-not $state) { throw 'app did not start serving within 80s' }
-          $state | ConvertTo-Json
-          if ($state.platform -ne 'win32') { throw "unexpected platform: $($state.platform)" }
-          $page = Invoke-WebRequest http://127.0.0.1:17980/ -UseBasicParsing
-          if ($page.Content -notmatch 'ProVpn') { throw 'UI not served' }
-          Start-Sleep -Seconds 3
-          $titles = Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { "$($_.ProcessName): $($_.MainWindowTitle)" }
-          $titles
-          if (-not (Get-Process | Where-Object { $_.ProcessName -like 'ProVpn*' -and $_.MainWindowTitle -eq 'ProVpn' })) {
-            throw 'no ProVpn application window found'
+          foreach ($f in 'err.txt', 'out.txt') {
+            if (Test-Path $f) { $t = (Get-Content $f -Raw); if ($t) { $diag.Add("$f : " + $t.Substring(0, [Math]::Min(600, $t.Length))) } }
           }
-          Get-Process | Where-Object { $_.ProcessName -like 'ProVpn*' } | Stop-Process -Force
+          Get-Process | Where-Object { $_.ProcessName -like 'ProVpn*' } | Stop-Process -Force -ErrorAction SilentlyContinue
+          if ($failure) { Annotate 'error' ("SMOKE FAILED: $failure | " + ($diag -join ' | ')); exit 1 }
+          Annotate 'notice' ('SMOKE OK | ' + ($diag -join ' | '))
 
       - uses: actions/upload-artifact@v4
         with:
