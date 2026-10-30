@@ -5,6 +5,12 @@ const state = {
   profiles: [], subs: [], active: null, selected: null,
   busy: null, // 'connect' | 'disconnect' | null
   privileged: null, toolsMissing: false, offline: false,
+  failures: 0, seenJob: 0, filter: '',
+};
+
+const labelOf = (name) => {
+  const p = state.profiles.find((x) => x.name === name);
+  return (p && (p.label || p.name)) || name;
 };
 
 const ICON = {
@@ -15,11 +21,18 @@ const ICON = {
 };
 
 async function api(method, url, body) {
-  const res = await fetch(url, {
+  const opts = {
     method,
     headers: { 'Content-Type': 'application/json' },
     body: body ? JSON.stringify(body) : undefined,
-  });
+  };
+  let res;
+  try { res = await fetch(url, opts); } catch (e) {
+    // Chromium aborts requests when the network changes (a tunnel coming up). Reads are safe to repeat.
+    if (method !== 'GET') throw e;
+    await new Promise((r) => setTimeout(r, 400));
+    res = await fetch(url, opts);
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw Object.assign(new Error(data.error || res.statusText), { details: data.details });
   return data;
@@ -164,11 +177,14 @@ function profileRow(p, locked) {
   li.setAttribute('aria-checked', String(p.name === state.selected));
 
   const radio = document.createElement('span'); radio.className = 'radio';
-  const av = document.createElement('span'); av.className = 'avatar'; av.textContent = p.name.slice(0, 1);
+  const label = p.label || p.name;
+  li.title = label;
+  const av = document.createElement('span'); av.className = 'avatar';
+  av.textContent = (/[\p{L}\p{N}]/u.exec(label) || ['•'])[0];
   let h = 0; for (const ch of p.name) h = (h * 31 + ch.charCodeAt(0)) % 360;
   av.style.setProperty('--h', h);
   const meta = document.createElement('span'); meta.className = 'meta';
-  const b = document.createElement('b'); b.textContent = p.name;
+  const b = document.createElement('b'); b.textContent = label;
   const s = document.createElement('small');
   if (p.valid) s.textContent = p.endpoint || '';
   else { s.textContent = 'Некорректный конфиг'; s.className = 'bad'; }
@@ -187,10 +203,12 @@ function renderGroups() {
   const locked = !!state.active || !!state.busy;
   const root = $('groups');
   root.textContent = '';
-  const manual = state.profiles.filter((p) => !p.sub);
+  const q = state.filter.trim().toLowerCase();
+  const shown = q ? state.profiles.filter((p) => `${p.label || p.name} ${p.endpoint || ''} ${protoName(p)}`.toLowerCase().includes(q)) : state.profiles;
+  const manual = shown.filter((p) => !p.sub);
   const blocks = [];
   if (manual.length) blocks.push({ title: state.subs.length ? 'Мои серверы' : '', items: manual });
-  state.subs.forEach((sub) => blocks.push({ sub, items: state.profiles.filter((p) => p.sub === sub.id) }));
+  state.subs.forEach((sub) => { const items = shown.filter((p) => p.sub === sub.id); if (items.length || !q) blocks.push({ sub, items }); });
 
   blocks.forEach((blk) => {
     const group = document.createElement('div'); group.className = 'group';
@@ -219,7 +237,12 @@ function renderGroups() {
     group.append(ul);
     root.append(group);
   });
-  $('empty').hidden = blocks.length > 0;
+  $('empty').hidden = state.profiles.length > 0;
+  if (state.profiles.length && !blocks.length) {
+    const n = document.createElement('p'); n.className = 'nomatch'; n.textContent = 'Ничего не найдено'; root.append(n);
+  }
+  const f = $('filter');
+  f.hidden = state.profiles.length <= 8;
 }
 
 function render() {
@@ -234,12 +257,12 @@ function render() {
     title = 'Нет связи'; sub = 'ProVpn не отвечает. Закройте приложение и откройте его снова.'; label = 'Недоступно';
   } else if (mode === 'busy') {
     title = busy === 'connect' ? 'Подключаем…' : 'Отключаем…';
-    sub = (active ? active.name : (sel && sel.name)) || ''; label = title;
+    sub = labelOf(active ? active.name : (sel && sel.name)) || ''; label = title;
   } else if (mode === 'on') {
     title = 'Вы под защитой'; label = 'Отключить';
   } else {
     title = 'Не защищено';
-    sub = sel ? `Трафик идёт напрямую. Для защиты будет использован сервер ${sel.name}.` : 'Добавьте сервер или подписку, чтобы включить защиту.';
+    sub = sel ? `Трафик идёт напрямую. Для защиты будет использован сервер ${labelOf(sel.name)}.` : 'Добавьте сервер или подписку, чтобы включить защиту.';
     label = profiles.length ? 'Подключить' : 'Добавить сервер';
   }
 
@@ -252,7 +275,7 @@ function render() {
   fig.hidden = mode !== 'on';
   if (mode === 'on') {
     setFigures(viaProxy
-      ? [['В сети', fmtUptime(active.handshake)], ['Сервер', active.name]]
+      ? [['В сети', fmtUptime(active.handshake)], ['Сервер', labelOf(active.name)]]
       : [['Получено', fmtBytes(active.rx)], ['Отправлено', fmtBytes(active.tx)], ['Рукопожатие', fmtAgo(active.handshake)]]);
   }
 
@@ -270,7 +293,7 @@ function render() {
   alertEl.hidden = !msg;
   alertEl.textContent = msg;
 
-  const sig = JSON.stringify([state.profiles, state.subs, state.selected, active && active.name, !!busy]);
+  const sig = JSON.stringify([state.profiles, state.subs, state.selected, active && active.name, !!busy, state.filter]);
   if (sig !== lastSig) { lastSig = sig; renderGroups(); }
 }
 
@@ -312,10 +335,20 @@ async function refresh() {
     state.privileged = s.privileged;
     state.subs = s.subscriptions || [];
     state.toolsMissing = s.toolsMissing;
+    state.failures = 0;
     state.offline = false;
+    // The server is the source of truth for "busy": connect/disconnect run as jobs there.
+    state.busy = s.job && s.job.state === 'running' ? s.job.type : null;
+    if (s.job && s.job.state !== 'running' && s.job.id !== state.seenJob) {
+      state.seenJob = s.job.id;
+      if (s.job.state === 'error') fail({ message: s.job.error, details: s.job.details });
+    }
     if (s.active) state.selected = s.active.name;
     else if (!state.profiles.some((p) => p.name === state.selected)) state.selected = (state.profiles.find((p) => p.valid) || {}).name || null;
-  } catch (e) { state.offline = true; }
+  } catch (e) {
+    // One failed poll is normal while the network is switching; only a lasting failure is "offline".
+    if (++state.failures >= 3) state.offline = true;
+  }
   render();
 }
 
@@ -326,13 +359,20 @@ async function toggle() {
   const name = disconnecting ? state.active.name : state.selected;
   state.busy = disconnecting ? 'disconnect' : 'connect';
   render();
-  try { await api('POST', disconnecting ? '/api/disconnect' : '/api/connect', { name }); } catch (e) { fail(e); }
-  state.busy = null;
+  try {
+    await api('POST', disconnecting ? '/api/disconnect' : '/api/connect', { name });
+  } catch (e) {
+    // A network error here is ambiguous (the tunnel may already be coming up): the poll will tell.
+    if (e instanceof TypeError) { schedule(300); return; }
+    state.busy = null;
+    fail(e);
+  }
   await refresh();
+  schedule(300);
 }
 
 async function removeProfile(name) {
-  if (!(await ask(`Удалить сервер ${name}?`, 'Конфиг будет удалён с этого компьютера.'))) return;
+  if (!(await ask(`Удалить сервер ${labelOf(name)}?`, 'Конфиг будет удалён с этого компьютера.'))) return;
   try { await api('DELETE', `/api/profiles/${encodeURIComponent(name)}`); } catch (e) { fail(e); }
   refresh();
 }
@@ -407,7 +447,7 @@ $('form').addEventListener('submit', async (e) => {
     await api('POST', '/api/profiles', { name, conf: $('fConf').value });
     state.selected = name;
     dlg.close();
-    toast(`Сервер ${name} добавлен`);
+    toast(`Сервер ${labelOf(name)} добавлен`);
     refresh();
   } catch (err) {
     const box = $('fErr');
@@ -436,8 +476,17 @@ $('formSub').addEventListener('submit', async (e) => {
   } finally { go.disabled = false; go.textContent = 'Загрузить'; }
 });
 
+$('filter').addEventListener('input', (e) => { state.filter = e.target.value; render(); });
 $('toggle').addEventListener('click', toggle);
 buildTunnel();
 render();
 refresh();
-setInterval(() => { if (!state.busy) refresh(); }, 3000);
+let pollTimer = null;
+function schedule(ms) {
+  clearTimeout(pollTimer);
+  pollTimer = setTimeout(async () => {
+    await refresh();
+    schedule(state.busy ? 600 : state.failures ? 1000 : 3000);
+  }, ms);
+}
+schedule(3000);

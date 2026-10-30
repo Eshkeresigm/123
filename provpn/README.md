@@ -38,6 +38,11 @@ WireGuard: `wg` и `wg-quick` в PATH. VLESS/Trojan: `sing-box` в PATH (или 
 - `npm test`: логика со stub-версиями wg и sing-box (POSIX и Windows-ветка). Реальный туннель не создаётся.
 - `node test/e2e-core.js <sing-box>`: настоящий sing-box (`check` конфигов + трафик VLESS/Trojan через loopback); запускается в CI.
 
+## Диагностика
+Журнал: `%APPDATA%\ProVpn\provpn.log` (подключения, ошибки, обрывы ядра; без паролей и UUID). Если окно не открывается из-за видеодрайвера, создайте пустой файл `%APPDATA%\ProVpn\disable-gpu`.
+
+Подключение и отключение выполняются фоновой задачей: окно запрашивает состояние и показывает результат, поэтому смена сети при подъёме туннеля не рвёт операцию. Если ядро VLESS/Trojan остановилось само, окно сообщает об обрыве.
+
 ## Безопасность
 - Слушает только 127.0.0.1; проверяются Host и Origin (DNS rebinding, CSRF)
 - WireGuard-конфиги с `PreUp/PostUp/PreDown/PostDown` отклоняются: они выполняют shell-команды

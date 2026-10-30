@@ -17,7 +17,7 @@ const stubWg = path.join(tmp, 'wg');
 const callLog = path.join(tmp, 'calls');
 const WINMODE = process.env.PROVPN_PLATFORM === 'win32';
 fs.writeFileSync(stubQuick, `#!/bin/sh\necho "$1" >> "${callLog}"\ncase "$1" in up|/installtunnelservice) basename "$2" .conf > "${stateFile}";; *) rm -f "${stateFile}";; esac\n`, { mode: 0o755 });
-fs.writeFileSync(stubWg, `#!/bin/sh\n[ -f "${stateFile}" ] && [ "$2" = "$(cat "${stateFile}")" ] || exit 1\nprintf 'priv\\tpub\\t51820\\toff\\npeer\\t(none)\\t1.2.3.4:51820\\t0.0.0.0/0\\t%s\\t100\\t200\\t0\\n' "$(date +%s)"\n`, { mode: 0o755 });
+fs.writeFileSync(stubWg, `#!/bin/sh\nif [ "$2" = "interfaces" ]; then [ -f "${stateFile}" ] && cat "${stateFile}"; exit 0; fi\n[ -f "${stateFile}" ] && [ "$2" = "$(cat "${stateFile}")" ] || exit 1\nprintf 'priv\\tpub\\t51820\\toff\\npeer\\t(none)\\t1.2.3.4:51820\\t0.0.0.0/0\\t%s\\t100\\t200\\t0\\n' "$(date +%s)"\n`, { mode: 0o755 });
 
 process.env.PROVPN_PORT = '17878';
 process.env.PROVPN_PROFILES = path.join(tmp, 'profiles');
@@ -37,6 +37,20 @@ const K = 'A'.repeat(43) + '=';
 const GOOD = `[Interface]\nPrivateKey = ${K}\nAddress = 10.0.0.2/32\nDNS = 1.1.1.1\n\n[Peer]\nPublicKey = ${K}\nEndpoint = 1.2.3.4:51820\nAllowedIPs = 0.0.0.0/0\n`;
 const base = 'http://127.0.0.1:17878';
 const H = { 'Content-Type': 'application/json', Origin: base };
+
+// connect/disconnect are background jobs: wait for the job the POST started.
+async function act(method, url, body) {
+  const r = await call(method, url, body);
+  if (r.status !== 202) return r;
+  for (let i = 0; i < 100; i++) {
+    const { job } = (await call('GET', '/api/state')).json;
+    if (job && job.id === r.json.job && job.state !== 'running') {
+      return job.state === 'done' ? { status: 200, json: job } : { status: 500, json: job };
+    }
+    await new Promise((x) => setTimeout(x, 50));
+  }
+  throw new Error('job did not finish');
+}
 
 async function call(method, url, body, headers = H) {
   const r = await fetch(base + url, { method, headers, body: body && JSON.stringify(body) });
@@ -75,13 +89,13 @@ async function call(method, url, body, headers = H) {
     assert.equal(fs.statSync(path.join(process.env.PROVPN_PROFILES, 'demo.conf')).mode & 0o077, 0, 'profile is 0600');
 
     // connect / state / disconnect
-    assert.equal((await call('POST', '/api/connect', { name: 'demo' })).status, 200);
+    assert.equal((await act('POST', '/api/connect', { name: 'demo' })).status, 200);
     s = (await call('GET', '/api/state')).json;
     assert.equal(s.active.name, 'demo');
     assert.equal(s.active.rx, 100);
-    assert.equal((await call('POST', '/api/connect', { name: 'demo' })).status, 409);
+    assert.equal((await act('POST', '/api/connect', { name: 'demo' })).status, 409);
     assert.equal((await call('DELETE', '/api/profiles/demo')).status, 409);
-    assert.equal((await call('POST', '/api/disconnect', { name: 'demo' })).status, 200);
+    assert.equal((await act('POST', '/api/disconnect', { name: 'demo' })).status, 200);
     assert.equal((await call('GET', '/api/state')).json.active, null);
     assert.equal((await call('DELETE', '/api/profiles/demo')).status, 200);
 
@@ -134,13 +148,14 @@ async function call(method, url, body, headers = H) {
       assert.ok(!JSON.stringify(s).includes('SECRET123'), 'subscription URL secret is never returned');
       const subId = s.subscriptions[0].id;
       assert.equal(s.profiles.filter((x) => x.sub === subId).length, 2);
+      assert.deepEqual(s.profiles.filter((x) => x.sub === subId).map((x) => x.label), ['One', 'Two'], 'subscription servers show their real names');
       assert.equal(fs.statSync(path.join(process.env.PROVPN_PROFILES, '_subscriptions.json')).mode & 0o077, 0, 'subs file is 0600');
 
       const first = s.profiles[0].name;
-      assert.equal((await call('POST', '/api/connect', { name: first })).status, 200, 'connect to imported profile');
+      assert.equal((await act('POST', '/api/connect', { name: first })).status, 200, 'connect to imported profile');
       subBody = b64(link('Only', '9.9.9.9:51820'));
       assert.equal((await call('POST', `/api/subscriptions/${subId}/refresh`)).status, 409, 'refresh blocked while connected');
-      assert.equal((await call('POST', '/api/disconnect', { name: first })).status, 200);
+      assert.equal((await act('POST', '/api/disconnect', { name: first })).status, 200);
       r = await call('POST', `/api/subscriptions/${subId}/refresh`);
       assert.equal(r.status, 200);
       assert.equal(r.json.imported, 1);
@@ -158,10 +173,10 @@ async function call(method, url, body, headers = H) {
       s = (await call('GET', '/api/state')).json;
       assert.deepEqual(s.profiles.filter((x) => x.sub === sub2).map((x) => x.kind).sort(), ['trojan', 'vless', 'wireguard']);
       const vlessName = s.profiles.find((x) => x.sub === sub2 && x.kind === 'vless').name;
-      assert.equal((await call('POST', '/api/connect', { name: vlessName })).status, 200, 'connect to VLESS profile from subscription');
+      assert.equal((await act('POST', '/api/connect', { name: vlessName })).status, 200, 'connect to VLESS profile from subscription');
       assert.equal((await call('POST', `/api/subscriptions/${sub2}/refresh`)).status, 409, 'refresh blocked while proxy connected');
       assert.equal((await call('DELETE', `/api/subscriptions/${sub2}`)).status, 409, 'delete blocked while proxy connected');
-      assert.equal((await call('POST', '/api/disconnect', { name: vlessName })).status, 200);
+      assert.equal((await act('POST', '/api/disconnect', { name: vlessName })).status, 200);
       assert.equal((await call('DELETE', `/api/subscriptions/${sub2}`)).status, 200);
 
       subBody = 'vmess://a\nss://b\nhysteria2://c\n';
@@ -234,6 +249,21 @@ async function call(method, url, body, headers = H) {
     });
     assert.ok(!fs.existsSync(path.join(runDir, 't2.json')), 'runtime config removed after failed start');
 
+    // a core that dies after it started is reported to the owner; a requested stop is not
+    const dropCore = path.join(tmp, 'core-drop');
+    fs.writeFileSync(dropCore, '#!/bin/sh\necho "INFO sing-box started"\nsleep 1\necho "ERROR boom ${U}"\nexit 3\n', { mode: 0o755 });
+    const drops = [];
+    const c4 = createCore({ binary: dropCore, runDir, startTimeoutMs: 3000, onExit: (d) => drops.push(d) });
+    await c4.start('t4', reality.outbound);
+    await new Promise((r) => setTimeout(r, 1500));
+    assert.equal(drops.length, 1, 'unexpected exit reported');
+    assert.equal(drops[0].code, 3);
+    const c5 = createCore({ binary: okCore, runDir, startTimeoutMs: 3000, onExit: (d) => drops.push(d) });
+    await c5.start('t5', reality.outbound);
+    await c5.stop();
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(drops.length, 1, 'requested stop is not reported as a drop');
+
     const c3 = createCore({ binary: path.join(tmp, 'no-such-core'), runDir, startTimeoutMs: 3000 });
     assert.equal(c3.missing(), true);
     await assert.rejects(() => c3.start('t3', reality.outbound), /не удалось запустить ядро/);
@@ -249,13 +279,13 @@ async function call(method, url, body, headers = H) {
     assert.equal((await call('POST', '/api/profiles', { name: 'vl1', conf: GOOD })).status, 409, 'name clash across kinds');
     assert.equal((await call('POST', '/api/profiles', { name: 'bad1', conf: 'vless://nope@h:1' })).status, 400);
 
-    assert.equal((await call('POST', '/api/connect', { name: 'vl1' })).status, 200);
+    assert.equal((await act('POST', '/api/connect', { name: 'vl1' })).status, 200);
     s = (await call('GET', '/api/state')).json;
     assert.equal(s.active.name, 'vl1');
     assert.equal(s.active.kind, 'proxy');
-    assert.equal((await call('POST', '/api/connect', { name: 'vl1' })).status, 409);
+    assert.equal((await act('POST', '/api/connect', { name: 'vl1' })).status, 409);
     assert.equal((await call('DELETE', '/api/profiles/vl1')).status, 409);
-    assert.equal((await call('POST', '/api/disconnect', { name: 'vl1' })).status, 200);
+    assert.equal((await act('POST', '/api/disconnect', { name: 'vl1' })).status, 200);
     assert.equal((await call('GET', '/api/state')).json.active, null);
     assert.equal((await call('DELETE', '/api/profiles/vl1')).status, 200);
 

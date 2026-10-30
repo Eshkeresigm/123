@@ -44,7 +44,7 @@ function buildRuntimeConfig(outbound) {
 
 const alive = (e) => e && e.child.exitCode === null && e.child.signalCode === null;
 
-function createCore({ binary, runDir, startTimeoutMs = 12000, buildConfig = buildRuntimeConfig }) {
+function createCore({ binary, runDir, startTimeoutMs = 12000, buildConfig = buildRuntimeConfig, onExit = null }) {
   let cur = null;
 
   const redact = (text, secrets) => secrets.reduce((t, s) => t.split(s).join('***'), text);
@@ -95,13 +95,21 @@ function createCore({ binary, runDir, startTimeoutMs = 12000, buildConfig = buil
     }
 
     cur = entry;
-    child.once('exit', () => { if (cur === entry) cur = null; cleanup(); });
+    child.once('exit', (code, signal) => {
+      if (cur === entry) cur = null;
+      cleanup();
+      // Dropped without us asking: tell the owner so the UI can say so.
+      if (!entry.stopping && onExit) {
+        try { onExit({ name, code: code === null ? signal : code, tail: redact(entry.tail, secrets) }); } catch { /* owner's problem */ }
+      }
+    });
     return { name, since: entry.since };
   }
 
   function stop() {
     const entry = cur;
     if (!alive(entry)) { cur = null; return Promise.resolve(); }
+    entry.stopping = true;
     return new Promise((resolve) => {
       const t = setTimeout(() => { try { entry.child.kill('SIGKILL'); } catch { /* already gone */ } resolve(); }, 5000);
       entry.child.once('exit', () => { clearTimeout(t); resolve(); });

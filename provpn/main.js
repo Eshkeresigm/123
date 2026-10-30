@@ -7,7 +7,7 @@ const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
 
 process.env.PROVPN_NO_BROWSER = '1';
 const fs = require('node:fs');
-const { server, CONFIG, detectElevation, shutdown } = require('./server.js');
+const { server, CONFIG, detectElevation, shutdown, log } = require('./server.js');
 
 // Software rendering fallback for machines/VMs where the GPU process cannot start
 // (Chromium then aborts at launch). Enable with --disable-gpu, PROVPN_NO_GPU=1,
@@ -20,7 +20,8 @@ if (process.argv.includes('--disable-gpu') || process.env.PROVPN_NO_GPU || fs.ex
   }
 }
 
-const ORIGIN = `http://localhost:${CONFIG.port}`;
+// 127.0.0.1, not "localhost": no name resolution, so a VPN's DNS/network change cannot affect the UI.
+const ORIGIN = `http://127.0.0.1:${CONFIG.port}`;
 let win = null;
 
 if (!app.requestSingleInstanceLock()) {
@@ -68,9 +69,25 @@ function createWindow() {
   win.webContents.on('will-navigate', (e, url) => {
     if (!url.startsWith(ORIGIN)) e.preventDefault();
   });
-  win.webContents.on('did-fail-load', (_e, code, desc) => {
-    if (code !== -3) dialog.showErrorBox('ProVpn', `Не удалось загрузить интерфейс: ${desc}`);
+  // A tunnel coming up changes the network under Chromium; a reload (not an error box) is the cure.
+  let loadRetries = 0;
+  win.webContents.on('did-finish-load', () => { loadRetries = 0; });
+  win.webContents.on('did-fail-load', (_e, code, desc, _url, isMainFrame) => {
+    if (code === -3 || isMainFrame === false) return;
+    log('did-fail-load', code, desc);
+    if (loadRetries++ < 6) { setTimeout(() => { if (win && !win.isDestroyed()) win.loadURL(ORIGIN); }, 700); return; }
+    dialog.showErrorBox('ProVpn', `Не удалось загрузить интерфейс: ${desc}`);
   });
+  const reloads = [];
+  win.webContents.on('render-process-gone', (_e, d) => {
+    log('render-process-gone', d.reason, d.exitCode);
+    const now = Date.now();
+    while (reloads.length && now - reloads[0] > 60000) reloads.shift();
+    if (d.reason === 'clean-exit' || !win || win.isDestroyed()) return;
+    if (reloads.push(now) <= 3) win.webContents.reload();
+    else dialog.showErrorBox('ProVpn', `Окно интерфейса аварийно завершилось (${d.reason}). Подробности: ${CONFIG.logFile}. Создайте пустой файл disable-gpu рядом с папкой profiles и запустите снова.`);
+  });
+  win.on('unresponsive', () => log('window unresponsive'));
   win.on('closed', () => { win = null; });
   win.loadURL(ORIGIN);
 }
@@ -85,4 +102,5 @@ app.on('before-quit', (e) => {
   server.close();
   shutdown().finally(() => app.quit());
 });
+app.on('child-process-gone', (_e, d) => log('child-process-gone', d.type, d.reason, d.exitCode));
 app.on('window-all-closed', () => app.quit());

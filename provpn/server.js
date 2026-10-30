@@ -39,7 +39,37 @@ const CONFIG = {
 };
 CONFIG.runDir = path.join(path.dirname(CONFIG.profilesDir), 'run'); // runtime configs hold credentials (0600)
 
-const core = createCore({ binary: CONFIG.singbox, runDir: CONFIG.runDir, startTimeoutMs: CONFIG.coreStartTimeoutMs });
+CONFIG.logFile = path.join(path.dirname(CONFIG.profilesDir), 'provpn.log');
+
+// Diagnostics file (never contains credentials: core output is redacted before it gets here).
+function log(...parts) {
+  try {
+    fs.mkdirSync(path.dirname(CONFIG.logFile), { recursive: true });
+    try { if (fs.statSync(CONFIG.logFile).size > 512 * 1024) fs.renameSync(CONFIG.logFile, `${CONFIG.logFile}.old`); } catch { /* no log yet */ }
+    fs.appendFileSync(CONFIG.logFile, `${new Date().toISOString()} ${parts.join(' ')}\n`, { mode: 0o600 });
+  } catch { /* logging must never break the app */ }
+}
+
+// Connect/disconnect run as background jobs: the UI polls /api/state for the result.
+// A long-lived HTTP request would be aborted by Chromium when the TUN adapter appears
+// (network change), which looked like a crash even though the tunnel was up.
+let job = null;
+let jobSeq = 0;
+const JOB_TTL_MS = 30000;
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+const core = createCore({
+  binary: CONFIG.singbox, runDir: CONFIG.runDir, startTimeoutMs: CONFIG.coreStartTimeoutMs,
+  onExit: ({ name, code, tail }) => {
+    log('core exited unexpectedly:', name, `code=${code}`, tail.trim().split('\n').slice(-6).join(' | '));
+    if (job && job.state === 'running') return;
+    job = {
+      id: ++jobSeq, type: 'drop', name, state: 'error', finishedAt: Date.now(),
+      error: `Соединение оборвалось: ядро sing-box остановилось (код ${code})`,
+      details: tail.trim().split('\n').slice(-4).filter(Boolean),
+    };
+  },
+});
 
 const NAME_RE = /^[A-Za-z0-9_-]{1,15}$/; // wg-quick: interface name <= 15 chars
 const KEY_RE = /^[A-Za-z0-9+/]{43}=$/;
@@ -127,7 +157,7 @@ function listProfiles() {
       if (!NAME_RE.test(name)) continue;
       try {
         const r = readProxy(name);
-        out.push({ name, kind: r.protocol, valid: true, endpoint: `${r.outbound.server}:${r.outbound.server_port}` });
+        out.push({ name, kind: r.protocol, valid: true, label: r.label, endpoint: `${r.outbound.server}:${r.outbound.server_port}` });
       } catch { out.push({ name, kind: 'proxy', valid: false }); }
     } else if (f.endsWith('.conf')) {
       const name = f.slice(0, -5);
@@ -188,12 +218,17 @@ async function isActive(name) {
 }
 
 // kind 'proxy': traffic counters are not collected, `handshake` carries the start time.
-async function activeStatus() {
+// One `wg show interfaces` call tells which tunnels exist; asking per profile would spawn
+// hundreds of processes every poll for a big subscription.
+async function activeStatus(profiles = listProfiles()) {
   const st = core.status();
   if (st) return { name: st.name, kind: 'proxy', handshake: Math.floor(st.since / 1000), rx: 0, tx: 0 };
-  for (const p of listProfiles()) {
-    if (p.kind !== 'wireguard') continue;
-    const w = await interfaceStatus(p.name);
+  const names = new Set(profiles.filter((p) => p.kind === 'wireguard').map((p) => p.name));
+  if (!names.size || toolsMissing()) return null;
+  const r = await run(CONFIG.wg, ['show', 'interfaces']);
+  const candidates = r.ok ? r.stdout.split(/\s+/).filter((n) => names.has(n)) : [...names].slice(0, 20);
+  for (const n of candidates) {
+    const w = await interfaceStatus(n);
     if (w) return { ...w, kind: 'wireguard' };
   }
   return null;
@@ -242,6 +277,12 @@ async function fetchText(raw) {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+// Display names come from untrusted subscriptions: drop control and bidi-override characters.
+function cleanLabel(raw) {
+  const t = String(raw || '').replace(/[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '').replace(/\s+/g, ' ').trim();
+  return Array.from(t).slice(0, 60).join('') || 'Сервер';
+}
+
 function unsupportedText(map) {
   return Object.entries(map).map(([k, n]) => `${k}: ${n}`).join(', ');
 }
@@ -282,9 +323,11 @@ async function importSubscription(rawUrl, existingId) {
     return name;
   });
 
+  const labels = {};
+  names.forEach((n, i) => { labels[n] = cleanLabel(valid[i].label); });
   const rec = {
     id, url: rawUrl, host: new URL(rawUrl).hostname, updatedAt: Date.now(),
-    profiles: names, unsupported: parsed.unsupported,
+    profiles: names, labels, unsupported: parsed.unsupported,
   };
   writeSubs(old ? subs.map((s) => (s.id === id ? rec : s)) : [...subs, rec]);
   return { id, imported: names.length, skipped, unsupported: parsed.unsupported };
@@ -297,6 +340,58 @@ async function removeSubscription(id) {
   for (const n of sub.profiles) if (await isActive(n)) throw httpErr(409, 'Сначала отключитесь');
   for (const n of sub.profiles) removeProfileFiles(n);
   writeSubs(subs.filter((s) => s.id !== id));
+}
+
+// ---- background jobs ------------------------------------------------------
+function publicJob() {
+  if (!job) return null;
+  if (job.state !== 'running' && Date.now() - job.finishedAt > JOB_TTL_MS) return null;
+  const { id, type, name, state, error, details } = job;
+  return { id, type, name, state, error, details };
+}
+
+function startJob(type, name, work) {
+  if (job && job.state === 'running') throw httpErr(409, 'Предыдущая операция ещё выполняется');
+  const j = { id: ++jobSeq, type, name, state: 'running' };
+  job = j;
+  log(type, name, 'start');
+  Promise.resolve().then(work).then(
+    () => { j.state = 'done'; log(type, name, 'ok'); },
+    (e) => {
+      j.state = 'error'; j.error = e.message; j.details = e.details;
+      log(type, name, 'FAILED:', e.message, [].concat(e.details || []).join(' | '));
+    },
+  ).finally(() => { j.finishedAt = Date.now(); });
+  return j;
+}
+
+async function doConnect(name, kind) {
+  if (kind === 'proxy') {
+    try { await core.start(name, readProxy(name).outbound); }
+    catch (e) { throw Object.assign(new Error(`Не удалось подключиться: ${e.message}`), { details: e.details }); }
+    return;
+  }
+  const r = await backendUp(name);
+  if (!r.ok) {
+    throw Object.assign(new Error('Не удалось запустить туннель WireGuard'),
+      { details: [(r.stderr || r.stdout || String(r.err && r.err.message)).slice(0, 800)] });
+  }
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    if (await interfaceStatus(name)) return;
+    await sleep(500);
+  }
+  await backendDown(name);
+  throw new Error('Служба WireGuard запустилась, но туннель не поднялся. Проверьте конфиг сервера.');
+}
+
+async function doDisconnect(name, kind) {
+  if (kind === 'proxy') { await core.stop(); return; }
+  const r = await backendDown(name);
+  if (!r.ok) {
+    throw Object.assign(new Error('Не удалось отключить туннель WireGuard'),
+      { details: [(r.stderr || r.stdout || String(r.err && r.err.message)).slice(0, 800)] });
+  }
 }
 
 // ---- HTTP plumbing ---------------------------------------------------------
@@ -359,15 +454,22 @@ async function handleApi(req, res) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/state') {
+    const subs = readSubs();
+    const owner = new Map();
+    for (const sub of subs) for (const n of sub.profiles) owner.set(n, sub);
+    const profiles = listProfiles();
     return send(res, 200, {
-      profiles: listProfiles().map((p) => {
-        const s = readSubs().find((x) => x.profiles.includes(p.name));
-        return s ? { ...p, sub: s.id } : p;
+      profiles: profiles.map((p) => {
+        const sub = owner.get(p.name);
+        const label = sub ? cleanLabel((sub.labels && sub.labels[p.name]) || p.label || p.name) : p.name;
+        const { label: _raw, ...rest } = p;
+        return sub ? { ...rest, label, sub: sub.id } : { ...rest, label };
       }),
-      subscriptions: readSubs().map((s) => ({
+      subscriptions: subs.map((s) => ({
         id: s.id, host: s.host, updatedAt: s.updatedAt, count: s.profiles.length, unsupported: s.unsupported,
       })),
-      active: await activeStatus(),
+      active: await activeStatus(profiles),
+      job: publicJob(),
       privileged: elevated,
       toolsMissing: toolsMissing(),
       platform: WIN ? 'win32' : process.platform,
@@ -414,20 +516,10 @@ async function handleApi(req, res) {
       const cur = await activeStatus();
       if (cur) return send(res, 409, { error: `already connected: ${cur.name}` });
     }
-    if (kind === 'proxy') {
-      if (up) {
-        if (core.missing()) return send(res, 424, { error: 'Не найдено ядро sing-box. Переустановите ProVpn.' });
-        try { await core.start(name, readProxy(name).outbound); }
-        catch (e) { return send(res, 500, { error: `Не удалось подключиться: ${e.message}`, details: e.details }); }
-      } else {
-        await core.stop();
-      }
-      return send(res, 200, { ok: true });
-    }
-    if (toolsMissing()) return send(res, 424, { error: 'WireGuard не установлен (wireguard.com/install)' });
-    const r = await (up ? backendUp(name) : backendDown(name));
-    if (!r.ok) return send(res, 500, { error: `${up ? 'connect' : 'disconnect'} failed`, details: (r.stderr || r.stdout || String(r.err.message)).slice(0, 800) });
-    return send(res, 200, { ok: true });
+    if (kind === 'proxy' && up && core.missing()) return send(res, 424, { error: 'Не найдено ядро sing-box. Переустановите ProVpn.' });
+    if (kind === 'wireguard' && toolsMissing()) return send(res, 424, { error: 'WireGuard не установлен (wireguard.com/install)' });
+    const j = startJob(up ? 'connect' : 'disconnect', name, () => (up ? doConnect(name, kind) : doDisconnect(name, kind)));
+    return send(res, 202, { ok: true, job: j.id });
   }
 
   if (req.method === 'POST' && url.pathname === '/api/subscriptions') {
@@ -521,12 +613,12 @@ async function main() {
   });
 }
 
-process.on('uncaughtException', (e) => console.error('uncaughtException:', e));
-process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
+process.on('uncaughtException', (e) => { console.error('uncaughtException:', e); log('uncaughtException', e && e.stack || e); });
+process.on('unhandledRejection', (e) => { console.error('unhandledRejection:', e); log('unhandledRejection', e && e.stack || e); });
 for (const sig of ['SIGINT', 'SIGTERM']) {
   process.on(sig, async () => { await core.stop(); process.exit(0); }); // never leave an orphaned tunnel
 }
 
 if (require.main === module) main();
 
-module.exports = { server, parseConf, CONFIG, detectElevation, shutdown: () => core.stop() };
+module.exports = { server, parseConf, CONFIG, detectElevation, log, shutdown: () => core.stop() };
