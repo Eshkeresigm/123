@@ -52,7 +52,7 @@ jobs:
             gomobile bind -target=android/arm64,android/arm -androidapi 24 -trimpath -ldflags="-s -w" \
               -o android/app/libs/cvmobile.aar ./mobile &&
             unzip -p android/app/libs/cvmobile.aar classes.jar > /tmp/classes.jar &&
-            unzip -l /tmp/classes.jar | grep -E "go/cvmobile/(Cvmobile|Session|Host)\.class"
+            unzip -Z1 /tmp/classes.jar | grep -v '^META' > classes.txt
           } > bind.log 2>&1
           rc=$?
           if [ $rc -ne 0 ]; then
@@ -60,6 +60,8 @@ jobs:
             exit $rc
           fi
           cat bind.log
+          echo "::notice title=classes::$(head -c 3000 classes.txt | sed ':a;N;$!ba;s/\n/%0A/g')"
+          grep -q 'cvmobile/Session.class' classes.txt
 
       - uses: gradle/actions/setup-gradle@v4
         with:
