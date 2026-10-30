@@ -38,18 +38,28 @@ jobs:
 
       - name: Build the Go core (gomobile bind)
         run: |
+          set +e
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
-          go install golang.org/x/mobile/cmd/gomobile@latest
-          go install golang.org/x/mobile/cmd/gobind@latest
-          go get golang.org/x/mobile/bind@latest
           export PATH="$PATH:$(go env GOPATH)/bin"
-          gomobile init
-          mkdir -p android/app/libs
-          gomobile bind -target=android/arm64,android/arm -androidapi 24 -trimpath -ldflags="-s -w" \
-            -o android/app/libs/cvmobile.aar ./mobile
-          unzip -l android/app/libs/cvmobile.aar
-          unzip -p android/app/libs/cvmobile.aar classes.jar > /tmp/classes.jar
-          unzip -l /tmp/classes.jar | grep -E "go/cvmobile/(Cvmobile|Session|Host)\.class"
+          {
+            set -x
+            ls "$ANDROID_NDK_HOME" | head -3
+            go install golang.org/x/mobile/cmd/gomobile@latest &&
+            go install golang.org/x/mobile/cmd/gobind@latest &&
+            go get golang.org/x/mobile/bind@latest &&
+            gomobile init &&
+            mkdir -p android/app/libs &&
+            gomobile bind -target=android/arm64,android/arm -androidapi 24 -trimpath -ldflags="-s -w" \
+              -o android/app/libs/cvmobile.aar ./mobile &&
+            unzip -p android/app/libs/cvmobile.aar classes.jar > /tmp/classes.jar &&
+            unzip -l /tmp/classes.jar | grep -E "go/cvmobile/(Cvmobile|Session|Host)\.class"
+          } > bind.log 2>&1
+          rc=$?
+          if [ $rc -ne 0 ]; then
+            echo "::error title=gomobile bind failed::$(tail -c 3500 bind.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
+            exit $rc
+          fi
+          cat bind.log
 
       - uses: gradle/actions/setup-gradle@v4
         with:
