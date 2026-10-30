@@ -5,6 +5,9 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   apk:
     runs-on: ubuntu-24.04
@@ -79,3 +82,11 @@ jobs:
           name: ChessVision-apk
           path: ChessVision.apk
           if-no-files-found: error
+
+      - name: Publish a release with the APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "apk-${{ github.run_number }}" ChessVision.apk \
+            --title "ChessVision APK #${{ github.run_number }}" \
+            --notes "Debug-signed build for sideloading."
