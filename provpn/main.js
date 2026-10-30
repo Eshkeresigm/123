@@ -15,7 +15,9 @@ const { server, CONFIG, detectElevation } = require('./server.js');
 const noGpuFile = path.join(path.dirname(CONFIG.profilesDir), 'disable-gpu');
 if (process.argv.includes('--disable-gpu') || process.env.PROVPN_NO_GPU || fs.existsSync(noGpuFile)) {
   app.disableHardwareAcceleration();
-  app.commandLine.appendSwitch('disable-gpu');
+  for (const sw of ['disable-gpu', 'disable-gpu-compositing', 'disable-gpu-sandbox', 'in-process-gpu']) {
+    app.commandLine.appendSwitch(sw);
+  }
 }
 
 const ORIGIN = `http://localhost:${CONFIG.port}`;
