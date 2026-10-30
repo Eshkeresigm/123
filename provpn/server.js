@@ -8,7 +8,8 @@ const path = require('node:path');
 const os = require('node:os');
 const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
-const { parseSubscription } = require('./subscription.js');
+const { parseSubscription, proxyUriToProfile } = require('./subscription.js');
+const { createCore } = require('./core.js');
 
 // ---- configuration (single place) ------------------------------------------
 // PROVPN_PLATFORM exists so the Windows code path can be tested with stubs.
@@ -30,7 +31,15 @@ const CONFIG = {
   cmdTimeoutMs: 30000,
   fetchTimeoutMs: 15000,
   maxSubBytes: 2 * 1024 * 1024,
+  // sing-box core for VLESS/Trojan: bundled in <app>/resources/core in the packaged app.
+  singbox: process.env.PROVPN_SINGBOX || (process.resourcesPath
+    ? path.join(process.resourcesPath, 'core', WIN ? 'sing-box.exe' : 'sing-box')
+    : WIN ? path.join(__dirname, 'core', 'sing-box.exe') : 'sing-box'),
+  coreStartTimeoutMs: 12000,
 };
+CONFIG.runDir = path.join(path.dirname(CONFIG.profilesDir), 'run'); // runtime configs hold credentials (0600)
+
+const core = createCore({ binary: CONFIG.singbox, runDir: CONFIG.runDir, startTimeoutMs: CONFIG.coreStartTimeoutMs });
 
 const NAME_RE = /^[A-Za-z0-9_-]{1,15}$/; // wg-quick: interface name <= 15 chars
 const KEY_RE = /^[A-Za-z0-9+/]{43}=$/;
@@ -85,18 +94,49 @@ function parseConf(text) {
 }
 
 // ---- profile storage -------------------------------------------------------
+// WireGuard profile: <name>.conf. VLESS/Trojan profile: <name>.proxy.json
+// ({protocol, label, outbound}); both hold secrets, so both are written 0600.
 function profilePath(name) { return path.join(CONFIG.profilesDir, `${name}.conf`); }
+function proxyPath(name) { return path.join(CONFIG.profilesDir, `${name}.proxy.json`); }
+
+function profileKind(name) {
+  if (!NAME_RE.test(name || '')) return null;
+  if (fs.existsSync(profilePath(name))) return 'wireguard';
+  if (fs.existsSync(proxyPath(name))) return 'proxy';
+  return null;
+}
+
+function readProxy(name) { return JSON.parse(fs.readFileSync(proxyPath(name), 'utf8')); }
+
+function writeProxy(name, rec) {
+  fs.mkdirSync(CONFIG.profilesDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(proxyPath(name), JSON.stringify(rec, null, 2), { mode: 0o600 });
+}
+
+function removeProfileFiles(name) {
+  fs.rmSync(profilePath(name), { force: true });
+  fs.rmSync(proxyPath(name), { force: true });
+}
 
 function listProfiles() {
   if (!fs.existsSync(CONFIG.profilesDir)) return [];
-  return fs.readdirSync(CONFIG.profilesDir)
-    .filter((f) => f.endsWith('.conf') && NAME_RE.test(f.slice(0, -5)))
-    .map((f) => {
+  const out = [];
+  for (const f of fs.readdirSync(CONFIG.profilesDir)) {
+    if (f.endsWith('.proxy.json')) {
+      const name = f.slice(0, -'.proxy.json'.length);
+      if (!NAME_RE.test(name)) continue;
+      try {
+        const r = readProxy(name);
+        out.push({ name, kind: r.protocol, valid: true, endpoint: `${r.outbound.server}:${r.outbound.server_port}` });
+      } catch { out.push({ name, kind: 'proxy', valid: false }); }
+    } else if (f.endsWith('.conf')) {
       const name = f.slice(0, -5);
+      if (!NAME_RE.test(name)) continue;
       const parsed = parseConf(fs.readFileSync(profilePath(name), 'utf8'));
-      return { name, valid: parsed.ok, ...(parsed.summary || {}) };
-    })
-    .sort((a, b) => a.name.localeCompare(b.name));
+      out.push({ name, kind: 'wireguard', valid: parsed.ok, ...(parsed.summary || {}) });
+    }
+  }
+  return out.sort((a, b) => a.name.localeCompare(b.name));
 }
 
 // ---- process helpers -------------------------------------------------------
@@ -140,10 +180,21 @@ async function interfaceStatus(name) {
   };
 }
 
+async function isActive(name) {
+  const st = core.status();
+  if (st && st.name === name) return true;
+  if (profileKind(name) === 'proxy') return false;
+  return !!(await interfaceStatus(name));
+}
+
+// kind 'proxy': traffic counters are not collected, `handshake` carries the start time.
 async function activeStatus() {
+  const st = core.status();
+  if (st) return { name: st.name, kind: 'proxy', handshake: Math.floor(st.since / 1000), rx: 0, tx: 0 };
   for (const p of listProfiles()) {
-    const st = await interfaceStatus(p.name);
-    if (st) return st;
+    if (p.kind !== 'wireguard') continue;
+    const w = await interfaceStatus(p.name);
+    if (w) return { ...w, kind: 'wireguard' };
   }
   return null;
 }
@@ -204,20 +255,21 @@ async function importSubscription(rawUrl, existingId) {
   const valid = [];
   const skipped = [...parsed.skipped];
   for (const p of parsed.profiles) {
+    if (p.outbound) { valid.push(p); continue; } // VLESS/Trojan: already validated by the parser
     const r = parseConf(p.conf);
     if (r.ok) valid.push(p); else skipped.push(`${p.label}: ${r.errors[0]}`);
   }
   if (!valid.length) {
     const un = unsupportedText(parsed.unsupported);
     throw httpErr(422,
-      un ? `В подписке нет WireGuard-серверов. Найдены протоколы, которые ProVpn пока не поддерживает: ${un}.`
-        : 'В подписке не найдено ни одного WireGuard-профиля.',
+      un ? `В подписке нет поддерживаемых серверов (WireGuard, VLESS, Trojan). Найдены другие протоколы: ${un}.`
+        : 'В подписке не найдено ни одного поддерживаемого сервера (WireGuard, VLESS, Trojan).',
       skipped.slice(0, 5));
   }
 
   if (old) {
-    for (const n of old.profiles) if (await interfaceStatus(n)) throw httpErr(409, 'Сначала отключитесь');
-    for (const n of old.profiles) fs.rmSync(profilePath(n), { force: true });
+    for (const n of old.profiles) if (await isActive(n)) throw httpErr(409, 'Сначала отключитесь');
+    for (const n of old.profiles) removeProfileFiles(n);
   }
 
   const id = old ? old.id : crypto.randomBytes(2).toString('hex');
@@ -225,7 +277,8 @@ async function importSubscription(rawUrl, existingId) {
   const names = valid.map((p, i) => {
     const slug = p.label.replace(/[^A-Za-z0-9_]+/g, '').slice(0, 8);
     const name = `${id}-${String(i + 1).padStart(2, '0')}${slug}`.slice(0, 15);
-    fs.writeFileSync(profilePath(name), p.conf.trim() + '\n', { mode: 0o600 });
+    if (p.outbound) writeProxy(name, { protocol: p.protocol, label: p.label, outbound: p.outbound });
+    else fs.writeFileSync(profilePath(name), p.conf.trim() + '\n', { mode: 0o600 });
     return name;
   });
 
@@ -241,8 +294,8 @@ async function removeSubscription(id) {
   const subs = readSubs();
   const sub = subs.find((s) => s.id === id);
   if (!sub) throw httpErr(404, 'Такой подписки нет');
-  for (const n of sub.profiles) if (await interfaceStatus(n)) throw httpErr(409, 'Сначала отключитесь');
-  for (const n of sub.profiles) fs.rmSync(profilePath(n), { force: true });
+  for (const n of sub.profiles) if (await isActive(n)) throw httpErr(409, 'Сначала отключитесь');
+  for (const n of sub.profiles) removeProfileFiles(n);
   writeSubs(subs.filter((s) => s.id !== id));
 }
 
@@ -324,8 +377,18 @@ async function handleApi(req, res) {
     const { name, conf } = await readJson(req);
     if (!NAME_RE.test(name || '')) return send(res, 400, { error: 'name: 1-15 chars A-Z a-z 0-9 _ -' });
     if (typeof conf !== 'string') return send(res, 400, { error: 'conf must be a string' });
+    const existing = profileKind(name);
+    if (/^\s*(vless|trojan):\/\//i.test(conf)) {
+      let prof;
+      try { prof = proxyUriToProfile(conf.trim().split(/\r?\n/)[0]); }
+      catch (e) { return send(res, 400, { error: 'invalid link', details: [e.message] }); }
+      if (existing === 'wireguard') return send(res, 409, { error: 'name is used by a WireGuard profile' });
+      writeProxy(name, { protocol: prof.protocol, label: prof.label, outbound: prof.outbound });
+      return send(res, 200, { ok: true, name });
+    }
     const parsed = parseConf(conf);
     if (!parsed.ok) return send(res, 400, { error: 'invalid config', details: parsed.errors });
+    if (existing === 'proxy') return send(res, 409, { error: 'name is used by a VLESS/Trojan profile' });
     fs.mkdirSync(CONFIG.profilesDir, { recursive: true, mode: 0o700 });
     fs.writeFileSync(profilePath(name), conf.trim() + '\n', { mode: 0o600 });
     return send(res, 200, { ok: true, name });
@@ -334,22 +397,33 @@ async function handleApi(req, res) {
   const del = /^\/api\/profiles\/([^/]+)$/.exec(url.pathname);
   if (req.method === 'DELETE' && del) {
     const name = decodeURIComponent(del[1]);
-    if (!NAME_RE.test(name) || !fs.existsSync(profilePath(name))) return send(res, 404, { error: 'no such profile' });
-    if (await interfaceStatus(name)) return send(res, 409, { error: 'disconnect first' });
-    fs.unlinkSync(profilePath(name));
+    if (!profileKind(name)) return send(res, 404, { error: 'no such profile' });
+    if (await isActive(name)) return send(res, 409, { error: 'disconnect first' });
+    removeProfileFiles(name);
     return send(res, 200, { ok: true });
   }
 
   if (req.method === 'POST' && (url.pathname === '/api/connect' || url.pathname === '/api/disconnect')) {
     const { name } = await readJson(req);
-    if (!NAME_RE.test(name || '') || !fs.existsSync(profilePath(name))) return send(res, 404, { error: 'no such profile' });
+    const kind = profileKind(name);
+    if (!kind) return send(res, 404, { error: 'no such profile' });
     const up = url.pathname === '/api/connect';
-    if (toolsMissing()) return send(res, 424, { error: 'WireGuard не установлен (wireguard.com/install)' });
     if (elevated === false) return send(res, 403, { error: 'Нужны права администратора' });
     if (up) {
       const cur = await activeStatus();
       if (cur) return send(res, 409, { error: `already connected: ${cur.name}` });
     }
+    if (kind === 'proxy') {
+      if (up) {
+        if (core.missing()) return send(res, 424, { error: 'Не найдено ядро sing-box. Переустановите ProVpn.' });
+        try { await core.start(name, readProxy(name).outbound); }
+        catch (e) { return send(res, 500, { error: `Не удалось подключиться: ${e.message}`, details: e.details }); }
+      } else {
+        await core.stop();
+      }
+      return send(res, 200, { ok: true });
+    }
+    if (toolsMissing()) return send(res, 424, { error: 'WireGuard не установлен (wireguard.com/install)' });
     const r = await (up ? backendUp(name) : backendDown(name));
     if (!r.ok) return send(res, 500, { error: `${up ? 'connect' : 'disconnect'} failed`, details: (r.stderr || r.stdout || String(r.err.message)).slice(0, 800) });
     return send(res, 200, { ok: true });
@@ -448,7 +522,10 @@ async function main() {
 
 process.on('uncaughtException', (e) => console.error('uncaughtException:', e));
 process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e));
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, async () => { await core.stop(); process.exit(0); }); // never leave an orphaned tunnel
+}
 
 if (require.main === module) main();
 
-module.exports = { server, parseConf, CONFIG, detectElevation };
+module.exports = { server, parseConf, CONFIG, detectElevation, shutdown: () => core.stop() };

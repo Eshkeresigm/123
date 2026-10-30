@@ -28,7 +28,19 @@ jobs:
           node --check main.js
           node --check server.js
           node --check subscription.js
+          node --check core.js
           node --check public/app.js
+
+      - name: Fetch sing-box core
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          function Annotate($level, $text) { Write-Host ("::$level::" + ($text -replace "`r?`n", '%0A')) }
+          try { $out = ./scripts/fetch-core.ps1 *>&1 | Out-String; Annotate 'notice' "FETCH-CORE OK | $out" }
+          catch { Annotate 'error' "FETCH-CORE FAILED | $($_.Exception.Message)"; exit 1 }
+
+      - name: Core end-to-end (real sing-box, loopback)
+        run: node test/e2e-core.js core\sing-box.exe
 
       - name: Build desktop exe
         run: npm run build:win
@@ -36,6 +48,8 @@ jobs:
       - name: Locate exe
         run: |
           if (-not (Test-Path dist\ProVpn.exe)) { throw 'dist\ProVpn.exe missing' }
+          if (-not (Test-Path dist\win-unpacked\resources\core\sing-box.exe)) { throw 'sing-box.exe is not packaged into the app' }
+          Write-Host "::notice::PACKAGED | $((Get-ChildItem dist\win-unpacked\resources\core).Name -join ', ') | exe $([math]::Round((Get-Item dist\ProVpn.exe).Length/1MB,1)) MB"
 
       - name: Smoke-test the desktop app
         run: ./test/ci-smoke.ps1

@@ -13,7 +13,8 @@
     "start": "node server.js",
     "desktop": "electron .",
     "test": "node test/smoke.js && node test/smoke.js --win",
-    "build:win": "electron-builder --win portable --x64"
+    "build:win": "electron-builder --win portable --x64",
+    "test:core": "node test/e2e-core.js"
   },
   "devDependencies": {
     "electron": "^33.2.0",
@@ -22,13 +23,36 @@
   "build": {
     "appId": "app.provpn.desktop",
     "productName": "ProVpn",
-    "directories": { "output": "dist" },
-    "files": ["main.js", "server.js", "subscription.js", "public/**/*", "build/icon.png", "package.json"],
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "server.js",
+      "subscription.js",
+      "core.js",
+      "public/**/*",
+      "build/icon.png",
+      "package.json"
+    ],
     "win": {
-      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "target": [
+        {
+          "target": "portable",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
       "icon": "build/icon.png",
       "requestedExecutionLevel": "requireAdministrator",
       "artifactName": "ProVpn.exe"
-    }
+    },
+    "extraResources": [
+      {
+        "from": "core",
+        "to": "core"
+      }
+    ]
   }
 }

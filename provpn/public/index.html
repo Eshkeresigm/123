@@ -44,7 +44,7 @@
   <section class="stats">
     <div class="card"><svg viewBox="0 0 24 24"><path d="M12 19V5M5 12l7-7 7 7"/></svg><div><small>Отправлено</small><b id="tx">0 Б</b></div></div>
     <div class="card"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12l7 7 7-7"/></svg><div><small>Получено</small><b id="rx">0 Б</b></div></div>
-    <div class="card"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><div><small>Рукопожатие</small><b id="hs">—</b></div></div>
+    <div class="card"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><div><small id="hsLabel">Рукопожатие</small><b id="hs">—</b></div></div>
   </section>
 
   <section class="panel">
@@ -77,8 +77,8 @@
     <label>Имя (до 15 символов: A-Z, 0-9, _ -)
       <input id="fName" maxlength="15" pattern="[A-Za-z0-9_\-]{1,15}" required autocomplete="off">
     </label>
-    <label>Конфиг WireGuard
-      <textarea id="fConf" rows="10" spellcheck="false" placeholder="[Interface]&#10;PrivateKey = ...&#10;Address = 10.0.0.2/32&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = host:51820&#10;AllowedIPs = 0.0.0.0/0" required></textarea>
+    <label>Конфиг WireGuard или ссылка vless:// / trojan://
+      <textarea id="fConf" rows="10" spellcheck="false" placeholder="vless://uuid@host:443?security=reality&#10;trojan://password@host:443&#10;&#10;или WireGuard:&#10;[Interface]&#10;PrivateKey = ...&#10;Address = 10.0.0.2/32&#10;&#10;[Peer]&#10;PublicKey = ...&#10;Endpoint = host:51820&#10;AllowedIPs = 0.0.0.0/0" required></textarea>
     </label>
     <input type="file" id="fFile" accept=".conf,text/plain" hidden>
     <p class="err" id="fErr" hidden></p>
@@ -97,7 +97,7 @@
     <label>Ссылка на подписку
       <input id="sUrl" type="url" required autocomplete="off" spellcheck="false" placeholder="https://example.com/sub?token=...">
     </label>
-    <p class="hint">Поддерживаются подписки с WireGuard-серверами: ссылки <code>wireguard://</code>, .conf-блоки и sing-box JSON (в том числе в base64). Ссылка хранится только на этом компьютере.</p>
+    <p class="hint">Поддерживаются ссылки <code>vless://</code>, <code>trojan://</code>, <code>wireguard://</code>, WireGuard .conf и sing-box JSON (в том числе в base64). Другие протоколы (vmess, ss, hysteria) пропускаются. Ссылка хранится только на этом компьютере.</p>
     <p class="err" id="sErr" hidden></p>
     <div class="row">
       <span class="grow"></span>

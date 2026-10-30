@@ -26,6 +26,13 @@ function fmtBytes(n) {
   return `${n.toFixed(i ? 1 : 0)} ${u[i]}`;
 }
 
+function fmtUptime(since) {
+  const s = Math.max(0, Math.floor(Date.now() / 1000 - since));
+  if (s < 60) return `${s} с`;
+  if (s < 3600) return `${Math.floor(s / 60)} мин`;
+  return `${Math.floor(s / 3600)} ч ${Math.floor((s % 3600) / 60)} мин`;
+}
+
 function fmtAgo(unix) {
   if (!unix) return '—';
   const s = Math.max(0, Math.floor(Date.now() / 1000 - unix));
@@ -46,9 +53,11 @@ function render() {
   else if (active) { $('title').textContent = 'Вы подключены'; $('sub').textContent = `Профиль: ${active.name}`; }
   else { $('title').textContent = 'Нажмите для подключения'; $('sub').textContent = sel ? `Профиль: ${sel.name}` : 'Выберите профиль ниже'; }
 
-  $('rx').textContent = fmtBytes(active ? active.rx : 0);
-  $('tx').textContent = fmtBytes(active ? active.tx : 0);
-  $('hs').textContent = active ? fmtAgo(active.handshake) : '—';
+  const viaProxy = !!active && active.kind === 'proxy'; // VLESS/Trojan: no traffic counters, show uptime
+  $('rx').textContent = viaProxy ? '—' : fmtBytes(active ? active.rx : 0);
+  $('tx').textContent = viaProxy ? '—' : fmtBytes(active ? active.tx : 0);
+  $('hs').textContent = !active ? '—' : viaProxy ? fmtUptime(active.handshake) : fmtAgo(active.handshake);
+  $('hsLabel').textContent = viaProxy ? 'В сети' : 'Рукопожатие';
 
   const list = $('list');
   list.textContent = '';
@@ -59,7 +68,7 @@ function render() {
     const meta = document.createElement('div'); meta.className = 'meta';
     const b = document.createElement('b'); b.textContent = p.name;
     const s = document.createElement('small');
-    if (p.valid) s.textContent = p.endpoint; else { s.textContent = 'Некорректный конфиг'; s.className = 'bad'; }
+    if (p.valid) s.textContent = (p.kind && p.kind !== 'wireguard' ? `${p.kind.toUpperCase()} · ` : '') + p.endpoint; else { s.textContent = 'Некорректный конфиг'; s.className = 'bad'; }
     meta.append(b, s);
     const del = document.createElement('button'); del.className = 'del'; del.title = 'Удалить'; del.innerHTML = ICON_TRASH;
     del.addEventListener('click', (e) => { e.stopPropagation(); removeProfile(p.name); });

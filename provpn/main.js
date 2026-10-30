@@ -7,7 +7,7 @@ const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
 
 process.env.PROVPN_NO_BROWSER = '1';
 const fs = require('node:fs');
-const { server, CONFIG, detectElevation } = require('./server.js');
+const { server, CONFIG, detectElevation, shutdown } = require('./server.js');
 
 // Software rendering fallback for machines/VMs where the GPU process cannot start
 // (Chromium then aborts at launch). Enable with --disable-gpu, PROVPN_NO_GPU=1,
@@ -73,4 +73,14 @@ function createWindow() {
   win.loadURL(ORIGIN);
 }
 
-app.on('window-all-closed', () => { server.close(); app.quit(); });
+// Closing the window ends a VLESS/Trojan tunnel (the core is our child process).
+// A WireGuard tunnel is a Windows service and stays up.
+let quitting = false;
+app.on('before-quit', (e) => {
+  if (quitting) return;
+  quitting = true;
+  e.preventDefault();
+  server.close();
+  shutdown().finally(() => app.quit());
+});
+app.on('window-all-closed', () => app.quit());

@@ -1,2 +1,5 @@
 profiles/
 node_modules/
+core/
+dist/
+run/
