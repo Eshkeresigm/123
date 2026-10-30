@@ -1,21 +1,34 @@
 {
   "name": "provpn",
-  "version": "0.1.0",
-  "description": "ProVpn - local WireGuard controller with a web UI",
+  "version": "0.2.0",
+  "description": "ProVpn - desktop WireGuard client",
+  "author": "ProVpn",
   "private": true,
   "license": "MIT",
+  "main": "main.js",
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "start": "node server.js",
+    "desktop": "electron .",
     "test": "node test/smoke.js && node test/smoke.js --win",
-    "build:win": "npx --yes @yao-pkg/pkg@6 . --targets node22-win-x64 --output dist/ProVpn.exe"
+    "build:win": "electron-builder --win portable --x64"
   },
-  "bin": "server.js",
-  "pkg": {
-    "assets": [
-      "public/**/*"
-    ]
+  "devDependencies": {
+    "electron": "^33.2.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "app.provpn.desktop",
+    "productName": "ProVpn",
+    "directories": { "output": "dist" },
+    "files": ["main.js", "server.js", "public/**/*", "build/icon.png", "package.json"],
+    "win": {
+      "target": [{ "target": "portable", "arch": ["x64"] }],
+      "icon": "build/icon.png",
+      "requestedExecutionLevel": "requireAdministrator",
+      "artifactName": "ProVpn.exe"
+    }
   }
 }

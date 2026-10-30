@@ -5,7 +5,7 @@
 ## Windows (exe)
 1. Установите [WireGuard для Windows](https://www.wireguard.com/install/) и [Node.js 20+](https://nodejs.org) (Node нужен только для сборки).
 2. Дважды щёлкните `build.cmd`, получится `dist\ProVpn.exe`.
-3. Запустите `ProVpn.exe`: он сам запросит права администратора и откроет меню в браузере.
+3. Запустите `ProVpn.exe`: это самостоятельное окно приложения (Electron), браузер не нужен. Права администратора запрашиваются самим exe. Файл portable: установка не требуется.
 
 Профили хранятся в `%APPDATA%\ProVpn\profiles`. Подключение: `wireguard.exe /installtunnelservice`, отключение: `/uninstalltunnelservice`.
 

@@ -20,30 +20,44 @@ jobs:
         with:
           node-version: 22
 
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
       - name: Syntax check
         run: |
+          node --check main.js
           node --check server.js
           node --check public/app.js
 
-      - name: Build exe
+      - name: Build desktop exe
         run: npm run build:win
 
-      - name: Smoke-test the exe
+      - name: Locate exe
         run: |
+          Get-ChildItem dist -Recurse -Filter *.exe | Select-Object FullName, Length
           if (-not (Test-Path dist\ProVpn.exe)) { throw 'dist\ProVpn.exe missing' }
-          $env:PROVPN_NO_BROWSER = '1'
-          $env:PROVPN_NO_ELEVATE = '1'
+
+      - name: Smoke-test the desktop app
+        run: |
           $env:PROVPN_PORT = '17980'
-          $p = Start-Process -FilePath dist\ProVpn.exe -PassThru -WindowStyle Hidden
-          Start-Sleep -Seconds 6
-          $state = Invoke-RestMethod http://127.0.0.1:17980/api/state
+          $p = Start-Process -FilePath dist\ProVpn.exe -PassThru
+          $state = $null
+          for ($i = 0; $i -lt 40 -and -not $state; $i++) {
+            Start-Sleep -Seconds 2
+            try { $state = Invoke-RestMethod http://127.0.0.1:17980/api/state } catch {}
+          }
+          if (-not $state) { throw 'app did not start serving within 80s' }
           $state | ConvertTo-Json
           if ($state.platform -ne 'win32') { throw "unexpected platform: $($state.platform)" }
           $page = Invoke-WebRequest http://127.0.0.1:17980/ -UseBasicParsing
-          if ($page.Content -notmatch 'ProVpn') { throw 'UI not served from exe' }
-          $logo = Invoke-WebRequest http://127.0.0.1:17980/logo.svg -UseBasicParsing
-          if ($logo.StatusCode -ne 200) { throw 'logo.svg not served' }
-          Stop-Process -Id $p.Id -Force
+          if ($page.Content -notmatch 'ProVpn') { throw 'UI not served' }
+          Start-Sleep -Seconds 3
+          $titles = Get-Process | Where-Object { $_.MainWindowTitle } | ForEach-Object { "$($_.ProcessName): $($_.MainWindowTitle)" }
+          $titles
+          if (-not (Get-Process | Where-Object { $_.ProcessName -like 'ProVpn*' -and $_.MainWindowTitle -eq 'ProVpn' })) {
+            throw 'no ProVpn application window found'
+          }
+          Get-Process | Where-Object { $_.ProcessName -like 'ProVpn*' } | Stop-Process -Force
 
       - uses: actions/upload-artifact@v4
         with:

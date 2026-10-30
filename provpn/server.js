@@ -326,4 +326,4 @@ process.on('unhandledRejection', (e) => console.error('unhandledRejection:', e))
 
 if (require.main === module) main();
 
-module.exports = { server, parseConf, CONFIG };
+module.exports = { server, parseConf, CONFIG, detectElevation };
