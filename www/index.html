@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; media-src https: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; connect-src 'self' https:; font-src 'self'">
+<meta name="theme-color" content="#07070c">
+<title>PluginSound</title>
+<link rel="icon" href="img/icon.svg" type="image/svg+xml">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></symbol>
+  <symbol id="i-pause" viewBox="0 0 24 24"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></symbol>
+  <symbol id="i-next" viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></symbol>
+  <symbol id="i-prev" viewBox="0 0 24 24"><path d="M6 6h2v12H6zM9.5 12l8.5 6V6z"/></symbol>
+  <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><path d="M15.5 14h-.79l-.28-.27A6.47 6.47 0 0016 9.5 6.5 6.5 0 109.5 16c1.61 0 3.09-.59 4.23-1.57l.27.28v.79l5 4.99L20.49 19l-4.99-5zm-6 0C7.01 14 5 11.99 5 9.5S7.01 5 9.5 5 14 7.01 14 9.5 11.99 14 9.5 14z"/></symbol>
+  <symbol id="i-chart" viewBox="0 0 24 24"><path d="M4 11h4v9H4zM10 4h4v16h-4zM16 14h4v6h-4z"/></symbol>
+  <symbol id="i-lib" viewBox="0 0 24 24"><path d="M6 3h12a1 1 0 011 1v17l-7-4-7 4V4a1 1 0 011-1z"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><path d="M19.14 12.94c.04-.3.06-.61.06-.94 0-.32-.02-.64-.07-.94l2.03-1.58a.49.49 0 00.12-.61l-1.92-3.32a.488.488 0 00-.59-.22l-2.39.96c-.5-.38-1.03-.7-1.62-.94l-.36-2.54a.484.484 0 00-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 00-.59.22L2.74 8.87c-.12.21-.08.47.12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 00-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32c.12-.22.07-.47-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/></symbol>
+  <symbol id="i-vol" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3A4.5 4.5 0 0014 7.97v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></symbol>
+</svg>
+
+<div id="bg" aria-hidden="true"><i class="blob b1"></i><i class="blob b2"></i><i class="blob b3"></i></div>
+
+<div class="app">
+  <aside class="side">
+    <div class="logo"><img class="mark" src="img/mark.svg" alt="" width="34" height="34"><span>PluginSound</span></div>
+    <nav class="nav">
+      <button data-view="charts" class="on"><svg class="ic"><use href="#i-chart"/></svg>Чарты</button>
+      <button data-view="search"><svg class="ic"><use href="#i-search"/></svg>Поиск</button>
+      <button data-view="lib"><svg class="ic"><use href="#i-lib"/></svg>Избранное</button>
+    </nav>
+    <button class="nav-set" data-act="settings"><svg class="ic"><use href="#i-gear"/></svg>Настройки</button>
+  </aside>
+
+  <main class="main">
+    <header class="top">
+      <div class="hello"><h1 id="title">Чарты</h1><p id="subtitle">Что слушает мир прямо сейчас</p></div>
+      <label class="searchbox"><svg class="ic"><use href="#i-search"/></svg><input id="q" type="search" placeholder="Трек или исполнитель" autocomplete="off"></label>
+      <button class="ico gear-m" data-act="settings" aria-label="Настройки"><svg class="ic"><use href="#i-gear"/></svg></button>
+    </header>
+
+    <section id="view-charts" class="view on">
+      <div id="hero" class="hero"></div>
+      <div id="pills" class="pills"></div>
+      <div id="banner" class="banner" hidden></div>
+      <div id="chart-list" class="list"></div>
+    </section>
+
+    <section id="view-search" class="view">
+      <div id="search-list" class="list"></div>
+    </section>
+
+    <section id="view-lib" class="view">
+      <div id="lib-list" class="list"></div>
+    </section>
+  </main>
+</div>
+
+<footer class="player" id="player">
+  <div class="p-prog"><input id="seek" type="range" min="0" max="1000" value="0" aria-label="Перемотка"></div>
+  <div class="p-row">
+    <div class="p-now">
+      <div id="p-cover" class="cover sm"></div>
+      <div class="meta"><b id="p-title">Ничего не играет</b><span id="p-artist">Выберите трек из чарта</span></div>
+      <button class="ico like" id="p-like" data-act="like-now" aria-label="В избранное"><svg class="ic"><use href="#i-heart"/></svg></button>
+    </div>
+    <div class="p-ctl">
+      <button class="ico" id="p-prev" aria-label="Назад"><svg class="ic"><use href="#i-prev"/></svg></button>
+      <button class="ico big" id="p-play" aria-label="Играть"><svg class="ic"><use href="#i-play"/></svg></button>
+      <button class="ico" id="p-next" aria-label="Вперёд"><svg class="ic"><use href="#i-next"/></svg></button>
+    </div>
+    <div class="p-vol"><span id="p-time">0:00</span><svg class="ic"><use href="#i-vol"/></svg><input id="vol" type="range" min="0" max="100" value="80" aria-label="Громкость"></div>
+  </div>
+</footer>
+
+<nav class="tabbar">
+  <button data-view="charts" class="on"><svg class="ic"><use href="#i-chart"/></svg><span>Чарты</span></button>
+  <button data-view="search"><svg class="ic"><use href="#i-search"/></svg><span>Поиск</span></button>
+  <button data-view="lib"><svg class="ic"><use href="#i-lib"/></svg><span>Избранное</span></button>
+</nav>
+
+<div id="toast" class="toast" role="status"></div>
+
+<dialog id="settings">
+  <form method="dialog" id="settings-form">
+    <h2>Настройки</h2>
+    <p class="hint">Ключи хранятся только на этом устройстве (localStorage). Deezer и Apple Music работают без ключей.</p>
+    <label>Страна Apple Music
+      <select data-key="appleCountry">
+        <option value="ru">Россия</option><option value="us">США</option>
+        <option value="gb">Великобритания</option><option value="de">Германия</option><option value="nl">Нидерланды</option>
+      </select>
+    </label>
+    <label>Яндекс Музыка · OAuth-токен<input data-key="yandexToken" type="password" autocomplete="off" placeholder="y0_..."></label>
+    <label>Spotify · Client ID<input data-key="spotifyId" type="text" autocomplete="off"></label>
+    <label>Spotify · Client Secret<input data-key="spotifySecret" type="password" autocomplete="off"></label>
+    <label>SoundCloud · client_id<input data-key="scClientId" type="password" autocomplete="off"></label>
+    <p class="hint">Воспроизводятся 30-секундные превью (Deezer). Полные треки стриминговые сервисы через такие API не отдают.</p>
+    <div class="actions"><button value="save" class="btn" id="s-save">Сохранить</button><button value="cancel" class="btn ghost" id="s-close" formnovalidate>Закрыть</button></div>
+  </form>
+</dialog>
+
+<script src="js/sources.js"></script>
+<script src="js/art.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>

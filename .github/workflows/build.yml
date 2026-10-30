@@ -1,0 +1,45 @@
+name: build-pluginsound
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [pluginsound]
+
+jobs:
+  exe:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - run: npm install
+      - run: npm run check
+      - run: npm run build:win
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PluginSound-exe
+          path: dist/*.exe
+          if-no-files-found: error
+
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22 }
+      - uses: actions/setup-java@v4
+        with: { distribution: temurin, java-version: '21' }
+      - run: npm install
+      - run: npm run check
+      - run: npx cap add android
+      - run: node scripts/android-res.mjs
+      - run: npx cap sync android
+      - run: ./gradlew assembleDebug
+        working-directory: android
+      - name: Rename apk
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk PluginSound.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: PluginSound-apk
+          path: PluginSound.apk
+          if-no-files-found: error

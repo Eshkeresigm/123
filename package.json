@@ -1,0 +1,46 @@
+{
+  "name": "pluginsound-music",
+  "productName": "PluginSound",
+  "version": "1.0.0",
+  "description": "PluginSound: top charts player (Deezer, Apple Music, Yandex Music, Spotify, SoundCloud)",
+  "main": "electron/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "check": "node scripts/check.mjs",
+    "build:win": "electron-builder --win portable --x64",
+    "cap:add": "cap add android",
+    "cap:sync": "cap sync android",
+    "build:apk": "cap add android && node scripts/android-res.mjs && cap sync android && cd android && gradlew assembleDebug",
+    "icons": "python3 scripts/render_icons.py"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.0.0",
+    "@capacitor/core": "^7.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.0.0",
+    "electron": "^33.0.0",
+    "electron-builder": "^25.0.0"
+  },
+  "build": {
+    "appId": "app.pluginsound.music",
+    "productName": "PluginSound",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**",
+      "www/**",
+      "build/icon.png",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        "portable"
+      ],
+      "icon": "build/icon.ico",
+      "artifactName": "PluginSound-${version}-x64.exe"
+    }
+  }
+}
