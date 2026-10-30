@@ -58,70 +58,72 @@ function plural(n, forms) {
 
 const protoName = (p) => (p.kind === 'vless' ? 'VLESS' : p.kind === 'trojan' ? 'Trojan' : 'WireGuard');
 
-// ---- the tunnel drawing ----------------------------------------------------
-const SVGNS = 'http://www.w3.org/2000/svg';
+// ---- the globe ---------------------------------------------------------------
+const MODE_RGB = { off: [150, 130, 255], on: [45, 245, 180], busy: [255, 193, 90], offline: [255, 111, 127] };
+const cur = [...MODE_RGB.off];
 
-function svgEl(tag, attrs, parent) {
-  const e = document.createElementNS(SVGNS, tag);
-  for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v);
-  if (parent) parent.append(e);
-  return e;
-}
-
-function mix(a, b, t) {
-  const p = (h) => [1, 3, 5].map((i) => parseInt(h.slice(i, i + 2), 16));
-  const [x, y] = [p(a), p(b)];
-  return `#${x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, '0')).join('')}`;
-}
-
-// Arches recede toward a vanishing point on the horizon; every spring line sits on it.
 function buildTunnel() {
-  const svg = $('tunnel');
-  const cx = 230;
-  const vy = 170;
-  const N = 8;
-  const defs = svgEl('defs', {}, svg);
-  const g = svgEl('radialGradient', { id: 'glowGrad' }, defs);
-  svgEl('stop', { offset: '0', 'stop-color': '#ffb43a', 'stop-opacity': '.85' }, g);
-  svgEl('stop', { offset: '.35', 'stop-color': '#ff9a2a', 'stop-opacity': '.30' }, g);
-  svgEl('stop', { offset: '1', 'stop-color': '#ff8a1f', 'stop-opacity': '0' }, g);
-
-  const dims = Array.from({ length: N }, (_, k) => {
-    const s = 0.74 ** k;
-    return { k, s, hw: 250 * s, floor: vy + 300 * s };
+  const cv = $('globe');
+  const ctx = cv.getContext('2d');
+  const N = 950;
+  const pts = Array.from({ length: N }, (_, i) => {
+    const y = 1 - (i + 0.5) * 2 / N;
+    const r = Math.sqrt(1 - y * y);
+    const t = Math.PI * (3 - Math.sqrt(5)) * i;
+    return [Math.cos(t) * r, y, Math.sin(t) * r];
   });
+  const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  let ang = 0.6;
+  let last = 0;
+  const tilt = 0.38;
+  const ct = Math.cos(tilt);
+  const st = Math.sin(tilt);
 
-  dims.forEach(({ k, s, hw, floor }) => {
-    const t = k / (N - 1);
-    const d = `M${cx - hw} ${floor}V${vy}A${hw} ${hw} 0 0 1 ${cx + hw} ${vy}V${floor}Z`;
-    const arch = svgEl('path', { d, class: 'arch', 'stroke-width': (2.6 * s + 0.6).toFixed(2) }, svg);
-    arch.style.cssText = [
-      `--i:${k}`,
-      `--off-fill:${mix('#0a1417', '#16313a', t ** 1.1)}`,
-      `--off-stroke:${mix('#1c3338', '#3d6066', t)}`,
-      `--on-fill:${mix('#0d1819', '#74470f', t ** 1.8)}`,
-      `--on-stroke:${mix('#3b2c14', '#ffb43a', t ** 0.7)}`,
-    ].join(';');
-  });
+  function frame(now) {
+    const dt = last ? Math.min(0.05, (now - last) / 1000) : 0;
+    last = now;
+    const mode = document.body.dataset.mode;
+    const target = MODE_RGB[mode] || MODE_RGB.off;
+    for (let i = 0; i < 3; i++) cur[i] += (target[i] - cur[i]) * Math.min(1, dt * 3);
+    ang += dt * (mode === 'busy' ? 1.1 : mode === 'on' ? 0.28 : 0.14);
 
-  dims.slice(0, -1).forEach(({ k, s, floor }, i) => {
-    const next = dims[i + 1].floor;
-    const dash = svgEl('line', {
-      x1: cx, x2: cx, y1: floor - 2, y2: floor - (floor - next) * 0.55,
-      class: 'lane', 'stroke-width': (3 * s + 0.6).toFixed(2), 'stroke-linecap': 'round',
-    }, svg);
-    dash.style.setProperty('--i', k);
-  });
+    const size = cv.clientWidth;
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    if (cv.width !== Math.round(size * dpr)) { cv.width = cv.height = Math.round(size * dpr); }
+    const R = size / 3;
+    const c = size / 2;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    ctx.clearRect(0, 0, size, size);
+    const col = `${cur[0] | 0},${cur[1] | 0},${cur[2] | 0}`;
 
-  dims.slice(2).forEach(({ k, s, hw }) => {
-    const lamp = svgEl('rect', {
-      x: (cx - 24 * s).toFixed(2), y: (vy - hw - 1).toFixed(2), width: (48 * s).toFixed(2), height: (5 * s + 1.5).toFixed(2), rx: 2, class: 'lamp',
-    }, svg);
-    lamp.style.setProperty('--i', k);
-  });
+    const halo = ctx.createRadialGradient(c, c, R * 0.75, c, c, R * 1.5);
+    halo.addColorStop(0, `rgba(${col},.30)`);
+    halo.addColorStop(1, `rgba(${col},0)`);
+    ctx.fillStyle = halo;
+    ctx.fillRect(0, 0, size, size);
+    const body = ctx.createRadialGradient(c - R * 0.3, c - R * 0.35, R * 0.1, c, c, R);
+    body.addColorStop(0, `rgba(${col},.16)`);
+    body.addColorStop(1, 'rgba(10,10,30,.55)');
+    ctx.fillStyle = body;
+    ctx.beginPath(); ctx.arc(c, c, R, 0, 7); ctx.fill();
 
-  svgEl('circle', { cx, cy: vy - 2, r: 120, fill: 'url(#glowGrad)', class: 'glow' }, svg);
-  svgEl('circle', { cx, cy: vy - 2, r: 7, class: 'core' }, svg);
+    const ca = Math.cos(ang);
+    const sa = Math.sin(ang);
+    for (const [x, y, z] of pts) {
+      const x1 = x * ca + z * sa;
+      const z1 = -x * sa + z * ca;
+      const y2 = y * ct - z1 * st;
+      const z2 = y * st + z1 * ct;
+      const front = z2 > 0;
+      const a = front ? 0.35 + 0.65 * z2 : 0.08 * (1 + z2);
+      ctx.fillStyle = `rgba(${col},${a.toFixed(3)})`;
+      const rr = front ? 1.1 + z2 * 0.9 : 0.8;
+      ctx.beginPath(); ctx.arc(c + x1 * R, c - y2 * R, rr, 0, 7); ctx.fill();
+    }
+    if (!still) requestAnimationFrame(frame);
+  }
+  requestAnimationFrame(frame);
+  if (still) { addEventListener('resize', () => requestAnimationFrame(frame)); setInterval(() => requestAnimationFrame(frame), 1000); }
 }
 
 // ---- rendering -------------------------------------------------------------
@@ -162,6 +164,9 @@ function profileRow(p, locked) {
   li.setAttribute('aria-checked', String(p.name === state.selected));
 
   const radio = document.createElement('span'); radio.className = 'radio';
+  const av = document.createElement('span'); av.className = 'avatar'; av.textContent = p.name.slice(0, 1);
+  let h = 0; for (const ch of p.name) h = (h * 31 + ch.charCodeAt(0)) % 360;
+  av.style.setProperty('--h', h);
   const meta = document.createElement('span'); meta.className = 'meta';
   const b = document.createElement('b'); b.textContent = p.name;
   const s = document.createElement('small');
@@ -170,7 +175,7 @@ function profileRow(p, locked) {
   meta.append(b, s);
   const proto = document.createElement('span'); proto.className = 'proto'; proto.textContent = protoName(p);
   const del = iconButton('del', 'Удалить сервер', ICON.trash, () => removeProfile(p.name));
-  li.append(radio, meta, proto, del);
+  li.append(radio, av, meta, proto, del);
 
   const select = () => { if (!state.active && !state.busy) { state.selected = p.name; render(); } };
   li.addEventListener('click', select);

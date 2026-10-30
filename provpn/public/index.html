@@ -8,26 +8,28 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body data-mode="off">
+<div class="aurora" aria-hidden="true"><i></i><i></i><i></i></div>
 <div class="shell">
 
   <header class="bar">
     <div class="brand">
-      <svg viewBox="0 0 24 24" width="22" height="22" aria-hidden="true"><path d="M3.500 21V12a8.500 8.500 0 0 1 17 0v9"/><path d="M8 21v-8.500a4 4 0 0 1 8 0V21"/></svg>
+      <svg viewBox="0 0 24 24" width="24" height="24" aria-hidden="true"><path d="M3.500 21V12a8.500 8.500 0 0 1 17 0v9"/><path d="M8 21v-8.500a4 4 0 0 1 8 0V21"/></svg>
       <span>ProVpn</span>
     </div>
   </header>
 
   <section class="stage" aria-labelledby="status">
-    <svg class="tunnel" id="tunnel" viewBox="0 0 460 440" preserveAspectRatio="xMidYMin slice" aria-hidden="true"></svg>
-    <div class="stage-body">
-      <h1 id="status" aria-live="polite">Не защищено</h1>
-      <p class="status-sub" id="statusSub"></p>
-      <dl class="figures" id="figures" hidden></dl>
-      <button class="toggle" id="toggle" type="button" role="switch" aria-checked="false">
+    <div class="orb">
+      <canvas id="globe" aria-hidden="true"></canvas>
+      <span class="ring r1" aria-hidden="true"></span><span class="ring r2" aria-hidden="true"></span>
+      <button class="toggle" id="toggle" type="button" role="switch" aria-checked="false" aria-labelledby="toggleLabel">
         <span class="knob" id="knob"></span>
-        <span class="toggle-label" id="toggleLabel">Подключить</span>
       </button>
+      <span class="toggle-label" id="toggleLabel">Подключить</span>
     </div>
+    <h1 id="status" aria-live="polite">Не защищено</h1>
+    <p class="status-sub" id="statusSub"></p>
+    <dl class="figures" id="figures" hidden></dl>
   </section>
 
   <section class="sheet" aria-labelledby="serversTitle">
@@ -49,7 +51,7 @@
     <div class="groups" id="groups"></div>
 
     <div class="empty" id="empty" hidden>
-      <svg viewBox="0 0 48 48" width="44" height="44" aria-hidden="true"><path d="M6 42V24a18 18 0 0 1 36 0v18"/><path d="M15 42V26a9 9 0 0 1 18 0v16"/><circle cx="24" cy="30" r="2.500" class="dot"/></svg>
+      <svg viewBox="0 0 48 48" width="48" height="48" aria-hidden="true"><circle cx="24" cy="24" r="17"/><ellipse cx="24" cy="24" rx="7.500" ry="17"/><path d="M7 24h34M10 15h28M10 33h28"/></svg>
       <h3>Серверов пока нет</h3>
       <p>Добавьте ссылку на сервер или подписку. ProVpn найдёт в ней серверы WireGuard, VLESS и Trojan.</p>
       <div class="actions">
