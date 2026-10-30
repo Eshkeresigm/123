@@ -67,12 +67,12 @@ function viaProxy(port, target) {
 async function roundTrip(name, link, serverInbound) {
   const { outbound } = proxyUriToProfile(link);
   const server = await spawnCore(`${name}-srv`, {
-    log: { level: 'warn' },
+    log: { level: 'info' },
     inbounds: [{ tag: 'in', listen: '127.0.0.1', listen_port: 10443, ...serverInbound }],
     outbounds: [{ type: 'direct', tag: 'direct' }],
   });
   const client = await spawnCore(`${name}-cli`, {
-    log: { level: 'warn' },
+    log: { level: 'info' },
     inbounds: [{ type: 'mixed', tag: 'mixed-in', listen: '127.0.0.1', listen_port: 19080 }],
     outbounds: [{ ...outbound, tag: 'proxy' }],
     route: { final: 'proxy' },
