@@ -2,7 +2,7 @@
   "name": "pluginsound-music",
   "productName": "PluginSound",
   "version": "1.0.0",
-  "description": "PluginSound: top charts player (Deezer, Apple Music, Yandex Music, Spotify, SoundCloud)",
+  "description": "PluginSound: free daily top charts player (Deezer; optional VK, Yandex Music, Spotify, SoundCloud)",
   "main": "electron/main.js",
   "private": true,
   "scripts": {

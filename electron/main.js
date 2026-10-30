@@ -5,8 +5,7 @@ const path = require('path');
 // Hosts the renderer may reach through the native fetch bridge (no CORS in the main process).
 const ALLOWED_HOSTS = new Set([
   'api.deezer.com',
-  'rss.applemarketingtools.com',
-  'itunes.apple.com',
+  'api.vk.com',
   'api.music.yandex.net',
   'accounts.spotify.com',
   'api.spotify.com',
@@ -23,7 +22,7 @@ ipcMain.handle('net:json', async (_event, url, opts) => {
   if (o.headers && typeof o.headers === 'object') {
     for (const [k, v] of Object.entries(o.headers)) headers[String(k)] = String(v);
   }
-  const init = { method: o.method === 'POST' ? 'POST' : 'GET', headers };
+  const init = { method: o.method === 'POST' ? 'POST' : 'GET', headers, signal: AbortSignal.timeout(15000) };
   if (init.method === 'POST' && typeof o.body === 'string') init.body = o.body;
   const res = await net.fetch(u.toString(), init);
   const text = await res.text();
