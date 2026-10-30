@@ -5,6 +5,9 @@ on:
   push:
     branches: [pluginsound]
 
+permissions:
+  contents: write
+
 jobs:
   exe:
     runs-on: windows-latest
@@ -43,3 +46,22 @@ jobs:
           name: PluginSound-apk
           path: PluginSound.apk
           if-no-files-found: error
+
+  release:
+    needs: [exe, apk]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: PluginSound-exe, path: out }
+      - uses: actions/download-artifact@v4
+        with: { name: PluginSound-apk, path: out }
+      - name: Publish GitHub Release (exe first, then apk)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="pluginsound-build-${{ github.run_number }}"
+          EXE=$(ls out/*.exe | head -n1)
+          gh release create "$TAG" "$EXE" --repo "${{ github.repository }}" --target "${{ github.sha }}" \
+            --title "PluginSound build ${{ github.run_number }}" \
+            --notes "Windows: portable .exe (x64). Android: debug-signed .apk (enable install from unknown sources)."
+          gh release upload "$TAG" out/PluginSound.apk --repo "${{ github.repository }}"
