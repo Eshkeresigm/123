@@ -41,9 +41,9 @@ import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
-import go.cvmobile.Cvmobile;
-import go.cvmobile.Host;
-import go.cvmobile.Session;
+import cvmobile.Cvmobile;
+import cvmobile.Host;
+import cvmobile.Session;
 
 /**
  * Foreground service: captures the screen with MediaProjection, feeds frames to the Go core
