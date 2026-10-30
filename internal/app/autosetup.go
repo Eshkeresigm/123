@@ -15,6 +15,11 @@ import (
 type ownRecter interface{ OwnRects() []image.Rectangle }
 type screener interface{ ScreenBounds() image.Rectangle }
 type selfHider interface{ SetSelfVisible(bool) }
+
+// staticOverlayer marks platforms that fade the arrow in themselves; the
+// controller then shows the final picture once and pauses scans for
+// OverlaySettle while the fade runs.
+type staticOverlayer interface{ OverlaySettle() time.Duration }
 type windowMover interface {
 	MoveAway(board image.Rectangle) bool
 }

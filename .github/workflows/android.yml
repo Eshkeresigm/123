@@ -5,9 +5,6 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
-permissions:
-  contents: write
-
 jobs:
   apk:
     runs-on: ubuntu-24.04
@@ -20,19 +17,16 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version: "1.24"
-          cache: false
 
-      - uses: actions/setup-java@v5
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
 
+      - uses: android-actions/setup-android@v3
+
       - name: Install SDK platform, build-tools and NDK
-        run: |
-          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          if [ ! -x "$SDKM" ]; then SDKM="$(command -v sdkmanager)"; fi
-          yes | "$SDKM" --licenses > /dev/null || true
-          "$SDKM" "platforms;android-34" "build-tools;34.0.0" "ndk;${NDK_VERSION}"
+        run: sdkmanager "platforms;android-34" "build-tools;34.0.0" "ndk;${NDK_VERSION}"
 
       - name: Go checks for the phone core
         run: |
@@ -41,30 +35,18 @@ jobs:
 
       - name: Build the Go core (gomobile bind)
         run: |
-          set +e
           export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/${NDK_VERSION}"
+          go install golang.org/x/mobile/cmd/gomobile@latest
+          go install golang.org/x/mobile/cmd/gobind@latest
+          go get golang.org/x/mobile/bind@latest
           export PATH="$PATH:$(go env GOPATH)/bin"
-          {
-            set -x
-            ls "$ANDROID_NDK_HOME" | head -3
-            go install golang.org/x/mobile/cmd/gomobile@latest &&
-            go install golang.org/x/mobile/cmd/gobind@latest &&
-            go get golang.org/x/mobile/bind@latest &&
-            gomobile init &&
-            mkdir -p android/app/libs &&
-            gomobile bind -target=android/arm64,android/arm -androidapi 24 -trimpath -ldflags="-s -w" \
-              -o android/app/libs/cvmobile.aar ./mobile &&
-            unzip -p android/app/libs/cvmobile.aar classes.jar > /tmp/classes.jar &&
-            unzip -Z1 /tmp/classes.jar | grep -v '^META' > classes.txt
-          } > bind.log 2>&1
-          rc=$?
-          if [ $rc -ne 0 ]; then
-            echo "::error title=gomobile bind failed::$(tail -c 3500 bind.log | sed ':a;N;$!ba;s/%/%25/g;s/\r//g;s/\n/%0A/g')"
-            exit $rc
-          fi
-          cat bind.log
-          echo "::notice title=classes::$(head -c 3000 classes.txt | sed ':a;N;$!ba;s/\n/%0A/g')"
-          grep -q 'cvmobile/Session.class' classes.txt
+          gomobile init
+          mkdir -p android/app/libs
+          gomobile bind -target=android/arm64,android/arm -androidapi 24 -trimpath -ldflags="-s -w" \
+            -o android/app/libs/cvmobile.aar ./mobile
+          unzip -l android/app/libs/cvmobile.aar
+          unzip -p android/app/libs/cvmobile.aar classes.jar > /tmp/classes.jar
+          unzip -l /tmp/classes.jar | grep -E "go/cvmobile/(Cvmobile|Session|Host)\.class"
 
       - uses: gradle/actions/setup-gradle@v4
         with:
@@ -82,11 +64,3 @@ jobs:
           name: ChessVision-apk
           path: ChessVision.apk
           if-no-files-found: error
-
-      - name: Publish a release with the APK
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          gh release create "apk-${{ github.run_number }}" ChessVision.apk \
-            --title "ChessVision APK #${{ github.run_number }}" \
-            --notes "Debug-signed build for sideloading."

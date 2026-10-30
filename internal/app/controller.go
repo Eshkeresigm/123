@@ -103,6 +103,15 @@ func (c *Controller) notify() {
 	}
 }
 
+// SetScanInterval changes how often the screen is read (before Start).
+func (c *Controller) SetScanInterval(d time.Duration) {
+	c.mu.Lock()
+	if d >= 50*time.Millisecond {
+		c.scanEvery = d
+	}
+	c.mu.Unlock()
+}
+
 // Start launches the background scanner.
 func (c *Controller) Start() {
 	c.wg.Add(1)
@@ -1098,6 +1107,28 @@ func (c *Controller) runOverlayAnim(gen int, r image.Rectangle, white bool, from
 		c.overlayImg, c.ovShown, c.ovLevel = img, mv, k
 		c.plat.ShowOverlay(r, img)
 		return true
+	}
+	if st, ok := c.plat.(staticOverlayer); ok {
+		// the platform animates the arrow itself: show the final picture once
+		// and keep scans paused while its fade runs
+		if to == chess.NoMove {
+			c.mu.Lock()
+			if c.ovGen == gen {
+				c.overlayImg, c.ovAnim, c.ovShown, c.ovLevel = nil, false, chess.NoMove, 0
+				c.plat.HideOverlay()
+			}
+			c.mu.Unlock()
+			return
+		}
+		if show(to, 1, 1) {
+			time.Sleep(st.OverlaySettle())
+			c.mu.Lock()
+			if c.ovGen == gen {
+				c.ovAnim = false
+			}
+			c.mu.Unlock()
+		}
+		return
 	}
 	easeOut := func(t float64) float64 { t = 1 - t; return 1 - t*t*t }
 	run := func(d time.Duration, f func(t float64) bool) bool {

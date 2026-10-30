@@ -37,6 +37,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.nio.ByteBuffer;
+import java.util.Arrays;
 import java.util.Locale;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -58,8 +59,8 @@ public final class CaptureService extends Service {
     private static final int INK = 0xFF1B2340;
     private static final int MUTED = 0xFF5B6585;
     private static final int ACCENT = 0xFF5B5BF0;
-    private static final long MIN_FRAME_GAP_MS = 110;
-    private static final int MAX_SHORT_SIDE = 1080;
+    private static final long MIN_FRAME_GAP_MS = 200;
+    private static final int MAX_SHORT_SIDE = 720;
 
     private final Handler main = new Handler(Looper.getMainLooper());
     private HandlerThread bgThread;
@@ -363,8 +364,12 @@ public final class CaptureService extends Service {
                     if (overlayBmp == null || overlayBmp.getWidth() != w || overlayBmp.getHeight() != h) {
                         overlayBmp = Bitmap.createBitmap((int) w, (int) h, Bitmap.Config.ARGB_8888);
                     }
+                    long key = Arrays.hashCode(rgba) * 31L + x * 7L + y * 13L + w;
+                    if (key == 0) {
+                        key = 1;
+                    }
                     overlayBmp.copyPixelsFromBuffer(ByteBuffer.wrap(rgba));
-                    arrow.setArrow(overlayBmp, x / scale, y / scale, (x + w) / scale, (y + h) / scale);
+                    arrow.setArrow(overlayBmp, x / scale, y / scale, (x + w) / scale, (y + h) / scale, key);
                 }
             });
         }

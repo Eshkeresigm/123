@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"chessvision/internal/app"
+	"chessvision/internal/vision"
 )
 
 // Host is implemented by the Android side.
@@ -91,6 +92,9 @@ func (p *framePlat) ShowOverlay(r image.Rectangle, img *image.RGBA) {
 }
 func (p *framePlat) HideOverlay() { p.host.HideOverlay() }
 
+// OverlaySettle: the host fades the arrow in itself; scans wait until it ends.
+func (p *framePlat) OverlaySettle() time.Duration { return 300 * time.Millisecond }
+
 func (p *framePlat) ScreenBounds() image.Rectangle {
 	if img, _ := p.frame(); img != nil {
 		return img.Rect
@@ -128,8 +132,10 @@ type Session struct {
 // learned again each time, which keeps it robust against changing screens.
 func NewSession(host Host) *Session {
 	p := &framePlat{host: host}
+	vision.MinBoardFraction = 0.4 // phone boards are big: search much faster
 	c := app.New(p, "", "", "")
-	c.SetMoveTime(1500)
+	c.SetScanInterval(300 * time.Millisecond)
+	c.SetMoveTime(1000)
 	c.SetOverlay(true)
 	c.Start()
 	return &Session{plat: p, ctl: c}

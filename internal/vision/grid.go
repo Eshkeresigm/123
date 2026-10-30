@@ -160,12 +160,31 @@ type gcand struct {
 // DetectBoard finds an 8x8 checkerboard in img regardless of the position on
 // it. It returns the board rectangle and a confidence (0..1).
 func DetectBoard(img *image.RGBA) (image.Rectangle, float64) {
+	if f := MinBoardFraction; f > defaultMinBoardFraction {
+		// a caller that knows boards are big (a phone screen) gets a much
+		// faster search first; fall back to the full range when it finds nothing
+		if r, c := detectBoard(img, f); c >= 0.62 {
+			return r, c
+		}
+	}
+	return detectBoard(img, defaultMinBoardFraction)
+}
+
+// defaultMinBoardFraction is the smallest board side, as a fraction of the
+// shorter image side, that DetectBoard looks for.
+const defaultMinBoardFraction = 0.18
+
+// MinBoardFraction can be raised by programs whose screens always show a large
+// board (the phone app) to make the first search pass much cheaper.
+var MinBoardFraction = defaultMinBoardFraction
+
+func detectBoard(img *image.RGBA, minFrac float64) (image.Rectangle, float64) {
 	b := img.Bounds()
 	maxS := min(b.Dx(), b.Dy())
 	if maxS < 96 {
 		return b, 0
 	}
-	minS := math.Max(96, 0.18*float64(maxS))
+	minS := math.Max(96, minFrac*float64(maxS))
 	// downscale for the coarse search on big images (a full screen)
 	k := 1
 	for float64(minS)/float64(k+1) >= 56 {
