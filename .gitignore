@@ -1,0 +1,6 @@
+dist/
+*.exe
+*.aar
+*.apk
+internal/vision/testdata/shot3.png
+internal/vision/testdata/shot4.png

@@ -1,0 +1,2 @@
+Carlito (UI-Regular.ttf, UI-Bold.ttf): Copyright (c) 2013 Lukasz Dziedzic (tyPoland), SIL Open Font License 1.1.
+DejaVu Sans (Symbols.ttf): Copyright (c) Bitstream, Inc. and Tavmjong Bah; free licence (see https://dejavu-fonts.github.io/License.html).
