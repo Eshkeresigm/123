@@ -23,7 +23,7 @@
     "appId": "app.provpn.desktop",
     "productName": "ProVpn",
     "directories": { "output": "dist" },
-    "files": ["main.js", "server.js", "public/**/*", "build/icon.png", "package.json"],
+    "files": ["main.js", "server.js", "subscription.js", "public/**/*", "build/icon.png", "package.json"],
     "win": {
       "target": [{ "target": "portable", "arch": ["x64"] }],
       "icon": "build/icon.png",

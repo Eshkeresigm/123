@@ -81,6 +81,80 @@ async function call(method, url, body, headers = H) {
     assert.deepEqual(calls, WINMODE ? ['/installtunnelservice', '/uninstalltunnelservice'] : ['up', 'down'],
       'backend called with platform-correct verbs');
 
+    // ---- subscription parsing ----
+    const { parseSubscription } = require('../subscription.js');
+    const KP = 'C'.repeat(20) + '+' + 'C'.repeat(22) + '='; // public key containing '+'
+    const link = (name, hp) => `wireguard://${K}@${hp}?publickey=${KP}&address=10.9.0.2/32&dns=1.1.1.1#${encodeURIComponent(name)}`;
+    const b64 = (arr) => Buffer.from([].concat(arr).join('\n')).toString('base64');
+
+    let p = parseSubscription(b64([
+      link('Test One', '1.2.3.4:51820'),
+      link('V6 Node', '[2001:db8::1]:51820'),
+      'vless://uuid@example.com:443?security=tls#x',
+      `wireguard://${K}@1.2.3.4:51820?publickey=${KP}&address=10.9.0.2/32&dns=1.1.1.1%0APostUp%20%3D%20calc#evil`,
+    ]));
+    assert.equal(p.profiles.length, 2, 'two wireguard links parsed');
+    assert.deepEqual(p.unsupported, { vless: 1 });
+    assert.equal(p.skipped.length, 1, 'newline-injection link skipped');
+    assert.equal(parseConf(p.profiles[0].conf).ok, true);
+    assert.ok(p.profiles[0].conf.includes(`PublicKey = ${KP}`), "'+' in key survives query parsing");
+    assert.match(p.profiles[1].conf, /Endpoint = \[2001:db8::1\]:51820/);
+
+    p = parseSubscription(JSON.stringify({ outbounds: [
+      { type: 'wireguard', tag: 'sb1', server: '5.6.7.8', server_port: 51820, local_address: ['10.1.0.2/32'], private_key: K, peer_public_key: K },
+      { type: 'vless', tag: 'v' }, { type: 'direct', tag: 'd' },
+    ] }));
+    assert.equal(p.profiles.length, 1);
+    assert.deepEqual(p.unsupported, { vless: 1 });
+    assert.equal(parseConf(p.profiles[0].conf).ok, true);
+    assert.equal(parseSubscription(GOOD + '\n' + GOOD).profiles.length, 2, 'plain .conf blocks');
+
+    // ---- subscription API (local mock server) ----
+    let subBody = b64([link('One', '1.2.3.4:51820'), link('Two', '5.6.7.8:51820')]);
+    const mock = require('node:http').createServer((q, r) => {
+      if (q.url.startsWith('/s')) r.end(subBody); else { r.statusCode = 404; r.end(); }
+    });
+    await new Promise((r) => mock.listen(17990, '127.0.0.1', r));
+    try {
+      const subUrl = 'http://127.0.0.1:17990/s?token=SECRET123';
+      let r = await call('POST', '/api/subscriptions', { url: subUrl });
+      assert.equal(r.status, 200);
+      assert.equal(r.json.imported, 2);
+      s = (await call('GET', '/api/state')).json;
+      assert.equal(s.subscriptions.length, 1);
+      assert.equal(s.subscriptions[0].count, 2);
+      assert.ok(!JSON.stringify(s).includes('SECRET123'), 'subscription URL secret is never returned');
+      const subId = s.subscriptions[0].id;
+      assert.equal(s.profiles.filter((x) => x.sub === subId).length, 2);
+      assert.equal(fs.statSync(path.join(process.env.PROVPN_PROFILES, '_subscriptions.json')).mode & 0o077, 0, 'subs file is 0600');
+
+      const first = s.profiles[0].name;
+      assert.equal((await call('POST', '/api/connect', { name: first })).status, 200, 'connect to imported profile');
+      subBody = b64(link('Only', '9.9.9.9:51820'));
+      assert.equal((await call('POST', `/api/subscriptions/${subId}/refresh`)).status, 409, 'refresh blocked while connected');
+      assert.equal((await call('POST', '/api/disconnect', { name: first })).status, 200);
+      r = await call('POST', `/api/subscriptions/${subId}/refresh`);
+      assert.equal(r.status, 200);
+      assert.equal(r.json.imported, 1);
+      s = (await call('GET', '/api/state')).json;
+      assert.equal(s.profiles.length, 1, 'old profiles replaced on refresh');
+      assert.equal(s.profiles[0].endpoint, '9.9.9.9:51820');
+
+      subBody = 'vless://u@e.com:443#a\nvmess://abc\n';
+      r = await call('POST', '/api/subscriptions', { url: subUrl });
+      assert.equal(r.status, 422);
+      assert.match(r.json.error, /vless: 1, vmess: 1/);
+
+      assert.equal((await call('POST', '/api/subscriptions', { url: 'ftp://x/y' })).status, 400);
+      assert.equal((await call('POST', '/api/subscriptions', { url: 'nonsense' })).status, 400);
+      assert.equal((await call('POST', '/api/subscriptions', { url: 'http://127.0.0.1:17990/missing' })).status, 502);
+
+      assert.equal((await call('DELETE', `/api/subscriptions/${subId}`)).status, 200);
+      s = (await call('GET', '/api/state')).json;
+      assert.equal(s.subscriptions.length, 0);
+      assert.equal(s.profiles.length, 0, 'subscription profiles removed');
+    } finally { mock.close(); }
+
     console.log(`smoke[${WINMODE ? 'win32' : 'posix'}]: all checks passed (stub wg, no real tunnel)`);
   } finally {
     server.close();

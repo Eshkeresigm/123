@@ -11,6 +11,7 @@ call npm install --no-audit --no-fund || (echo npm install failed. & exit /b 1)
 echo [2/3] Checking code...
 node --check main.js || exit /b 1
 node --check server.js || exit /b 1
+node --check subscription.js || exit /b 1
 node --check public\app.js || exit /b 1
 
 echo [3/3] Building exe...

@@ -50,11 +50,18 @@
   <section class="panel">
     <div class="panel-head">
       <h2>Профили</h2>
-      <button class="ghost" id="addBtn">
-        <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Добавить
-      </button>
+      <div class="row">
+        <button class="ghost" id="subBtn">
+          <svg viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.700 0l3-3a4 4 0 0 0-5.700-5.700l-1 1M14 10a4 4 0 0 0-5.700 0l-3 3a4 4 0 0 0 5.700 5.700l1-1"/></svg> Подписка
+        </button>
+        <button class="ghost" id="addBtn">
+          <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg> Добавить
+        </button>
+      </div>
     </div>
+    <p class="note" id="note" hidden></p>
     <ul class="list" id="list"></ul>
+    <ul class="list subs" id="subs"></ul>
     <p class="empty" id="empty" hidden>
       <svg viewBox="0 0 64 64" width="72" height="72" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><circle cx="32" cy="32" r="24"/><ellipse cx="32" cy="32" rx="10" ry="24"/><path d="M8 32h48M12 20h40M12 44h40"/></svg>
       Профилей пока нет. Добавьте WireGuard-конфиг вашего сервера.
@@ -80,6 +87,22 @@
       <span class="grow"></span>
       <button type="button" class="ghost" id="fCancel">Отмена</button>
       <button type="submit" class="solid">Сохранить</button>
+    </div>
+  </form>
+</dialog>
+
+<dialog id="dlgSub">
+  <form method="dialog" id="formSub">
+    <h3>Подписка по URL</h3>
+    <label>Ссылка на подписку
+      <input id="sUrl" type="url" required autocomplete="off" spellcheck="false" placeholder="https://example.com/sub?token=...">
+    </label>
+    <p class="hint">Поддерживаются подписки с WireGuard-серверами: ссылки <code>wireguard://</code>, .conf-блоки и sing-box JSON (в том числе в base64). Ссылка хранится только на этом компьютере.</p>
+    <p class="err" id="sErr" hidden></p>
+    <div class="row">
+      <span class="grow"></span>
+      <button type="button" class="ghost" id="sCancel">Отмена</button>
+      <button type="submit" class="solid" id="sGo">Загрузить</button>
     </div>
   </form>
 </dialog>

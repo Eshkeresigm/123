@@ -6,7 +6,9 @@ const http = require('node:http');
 const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
+const crypto = require('node:crypto');
 const { execFile } = require('node:child_process');
+const { parseSubscription } = require('./subscription.js');
 
 // ---- configuration (single place) ------------------------------------------
 // PROVPN_PLATFORM exists so the Windows code path can be tested with stubs.
@@ -26,6 +28,8 @@ const CONFIG = {
   wg: process.env.PROVPN_WG || (WIN ? path.join(WG_DIR, 'wg.exe') : 'wg'),
   maxBody: 64 * 1024,
   cmdTimeoutMs: 30000,
+  fetchTimeoutMs: 15000,
+  maxSubBytes: 2 * 1024 * 1024,
 };
 
 const NAME_RE = /^[A-Za-z0-9_-]{1,15}$/; // wg-quick: interface name <= 15 chars
@@ -144,6 +148,104 @@ async function activeStatus() {
   return null;
 }
 
+// ---- subscriptions ---------------------------------------------------------
+// A subscription is a URL that returns WireGuard servers. Its URL is a secret
+// (usually contains a token): stored 0600, never returned by the API.
+function httpErr(status, message, details) { return Object.assign(new Error(message), { status, details }); }
+
+const subsFile = () => path.join(CONFIG.profilesDir, '_subscriptions.json');
+
+function readSubs() {
+  try { return JSON.parse(fs.readFileSync(subsFile(), 'utf8')); } catch { return []; }
+}
+
+function writeSubs(list) {
+  fs.mkdirSync(CONFIG.profilesDir, { recursive: true, mode: 0o700 });
+  fs.writeFileSync(subsFile(), JSON.stringify(list, null, 2), { mode: 0o600 });
+}
+
+async function fetchText(raw) {
+  let u;
+  try { u = new URL(raw); } catch { throw httpErr(400, 'Некорректный URL'); }
+  if (u.protocol !== 'https:' && u.protocol !== 'http:') throw httpErr(400, 'Поддерживаются только http:// и https:// ссылки');
+
+  let res;
+  try {
+    res = await fetch(u, {
+      redirect: 'follow',
+      signal: AbortSignal.timeout(CONFIG.fetchTimeoutMs),
+      headers: { 'User-Agent': 'ProVpn/0.2', Accept: '*/*' },
+    });
+  } catch (e) {
+    throw httpErr(502, `Не удалось загрузить подписку: ${(e.cause && e.cause.code) || e.name}`);
+  }
+  if (!res.ok) throw httpErr(502, `Сервер подписки ответил кодом ${res.status}`);
+
+  const chunks = [];
+  let total = 0;
+  for await (const chunk of res.body) {
+    total += chunk.length;
+    if (total > CONFIG.maxSubBytes) throw httpErr(413, 'Подписка слишком большая (лимит 2 МБ)');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
+function unsupportedText(map) {
+  return Object.entries(map).map(([k, n]) => `${k}: ${n}`).join(', ');
+}
+
+async function importSubscription(rawUrl, existingId) {
+  const subs = readSubs();
+  const old = existingId ? subs.find((s) => s.id === existingId) : null;
+  if (existingId && !old) throw httpErr(404, 'Такой подписки нет');
+
+  const parsed = parseSubscription(await fetchText(rawUrl));
+  const valid = [];
+  const skipped = [...parsed.skipped];
+  for (const p of parsed.profiles) {
+    const r = parseConf(p.conf);
+    if (r.ok) valid.push(p); else skipped.push(`${p.label}: ${r.errors[0]}`);
+  }
+  if (!valid.length) {
+    const un = unsupportedText(parsed.unsupported);
+    throw httpErr(422,
+      un ? `В подписке нет WireGuard-серверов. Найдены протоколы, которые ProVpn пока не поддерживает: ${un}.`
+        : 'В подписке не найдено ни одного WireGuard-профиля.',
+      skipped.slice(0, 5));
+  }
+
+  if (old) {
+    for (const n of old.profiles) if (await interfaceStatus(n)) throw httpErr(409, 'Сначала отключитесь');
+    for (const n of old.profiles) fs.rmSync(profilePath(n), { force: true });
+  }
+
+  const id = old ? old.id : crypto.randomBytes(2).toString('hex');
+  fs.mkdirSync(CONFIG.profilesDir, { recursive: true, mode: 0o700 });
+  const names = valid.map((p, i) => {
+    const slug = p.label.replace(/[^A-Za-z0-9_]+/g, '').slice(0, 8);
+    const name = `${id}-${String(i + 1).padStart(2, '0')}${slug}`.slice(0, 15);
+    fs.writeFileSync(profilePath(name), p.conf.trim() + '\n', { mode: 0o600 });
+    return name;
+  });
+
+  const rec = {
+    id, url: rawUrl, host: new URL(rawUrl).hostname, updatedAt: Date.now(),
+    profiles: names, unsupported: parsed.unsupported,
+  };
+  writeSubs(old ? subs.map((s) => (s.id === id ? rec : s)) : [...subs, rec]);
+  return { id, imported: names.length, skipped, unsupported: parsed.unsupported };
+}
+
+async function removeSubscription(id) {
+  const subs = readSubs();
+  const sub = subs.find((s) => s.id === id);
+  if (!sub) throw httpErr(404, 'Такой подписки нет');
+  for (const n of sub.profiles) if (await interfaceStatus(n)) throw httpErr(409, 'Сначала отключитесь');
+  for (const n of sub.profiles) fs.rmSync(profilePath(n), { force: true });
+  writeSubs(subs.filter((s) => s.id !== id));
+}
+
 // ---- HTTP plumbing ---------------------------------------------------------
 const MIME = {
   '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8',
@@ -204,7 +306,13 @@ async function handleApi(req, res) {
 
   if (req.method === 'GET' && url.pathname === '/api/state') {
     return send(res, 200, {
-      profiles: listProfiles(),
+      profiles: listProfiles().map((p) => {
+        const s = readSubs().find((x) => x.profiles.includes(p.name));
+        return s ? { ...p, sub: s.id } : p;
+      }),
+      subscriptions: readSubs().map((s) => ({
+        id: s.id, host: s.host, updatedAt: s.updatedAt, count: s.profiles.length, unsupported: s.unsupported,
+      })),
       active: await activeStatus(),
       privileged: elevated,
       toolsMissing: toolsMissing(),
@@ -247,6 +355,23 @@ async function handleApi(req, res) {
     return send(res, 200, { ok: true });
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/subscriptions') {
+    const { url: subUrl } = await readJson(req);
+    if (typeof subUrl !== 'string' || subUrl.length > 4096) return send(res, 400, { error: 'Укажите URL подписки' });
+    return send(res, 200, await importSubscription(subUrl.trim()));
+  }
+
+  const subRoute = /^\/api\/subscriptions\/([0-9a-f]{4})(\/refresh)?$/.exec(url.pathname);
+  if (subRoute && req.method === 'POST' && subRoute[2]) {
+    const sub = readSubs().find((s) => s.id === subRoute[1]);
+    if (!sub) return send(res, 404, { error: 'Такой подписки нет' });
+    return send(res, 200, await importSubscription(sub.url, sub.id));
+  }
+  if (subRoute && req.method === 'DELETE' && !subRoute[2]) {
+    await removeSubscription(subRoute[1]);
+    return send(res, 200, { ok: true });
+  }
+
   return send(res, 404, { error: 'not found' });
 }
 
@@ -257,7 +382,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method !== 'GET') return send(res, 405, { error: 'method not allowed' });
     return serveStatic(req, res);
   } catch (e) {
-    send(res, e.status || 500, { error: e.message });
+    send(res, e.status || 500, { error: e.message, details: e.details });
   }
 });
 

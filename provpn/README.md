@@ -9,6 +9,15 @@
 
 Профили хранятся в `%APPDATA%\ProVpn\profiles`. Подключение: `wireguard.exe /installtunnelservice`, отключение: `/uninstalltunnelservice`.
 
+## Подписка по URL
+Кнопка «Подписка» → вставьте ссылку, ProVpn скачает её и создаст профили. Понимает (в том числе в base64):
+- ссылки `wireguard://PRIVATEKEY@host:port?publickey=...&address=...&dns=...#имя`
+- обычные WireGuard `.conf` (несколько `[Interface]` подряд)
+- sing-box JSON с `type: "wireguard"`
+
+Подписки с `vless/vmess/trojan/ss` ProVpn определяет, но не может использовать: для них нужен прокси-движок (xray/sing-box), он не встроен. Такие записи пропускаются и показываются в списке как «не поддерживается».
+Кнопки рядом с подпиской: обновить (заменяет её серверы) и удалить. Ссылка хранится в `_subscriptions.json` (права 0600) и в интерфейс не отдаётся. Конфиги с `PostUp/PreUp/...` и значения с переводами строк отклоняются.
+
 ## Linux / macOS
 ```
 sudo node server.js        # http://localhost:7878
