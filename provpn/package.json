@@ -1,0 +1,21 @@
+{
+  "name": "provpn",
+  "version": "0.1.0",
+  "description": "ProVpn - local WireGuard controller with a web UI",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/smoke.js && node test/smoke.js --win",
+    "build:win": "npx --yes @yao-pkg/pkg@6 . --targets node22-win-x64 --output dist/ProVpn.exe"
+  },
+  "bin": "server.js",
+  "pkg": {
+    "assets": [
+      "public/**/*"
+    ]
+  }
+}

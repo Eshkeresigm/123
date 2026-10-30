@@ -1,0 +1,52 @@
+name: build-provpn-exe
+
+on:
+  workflow_dispatch: {}
+  push:
+    branches: [provpn-exe]
+    paths: ['provpn/**', '.github/workflows/build-provpn-exe.yml']
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: pwsh
+        working-directory: provpn
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Syntax check
+        run: |
+          node --check server.js
+          node --check public/app.js
+
+      - name: Build exe
+        run: npm run build:win
+
+      - name: Smoke-test the exe
+        run: |
+          if (-not (Test-Path dist\ProVpn.exe)) { throw 'dist\ProVpn.exe missing' }
+          $env:PROVPN_NO_BROWSER = '1'
+          $env:PROVPN_NO_ELEVATE = '1'
+          $env:PROVPN_PORT = '17980'
+          $p = Start-Process -FilePath dist\ProVpn.exe -PassThru -WindowStyle Hidden
+          Start-Sleep -Seconds 6
+          $state = Invoke-RestMethod http://127.0.0.1:17980/api/state
+          $state | ConvertTo-Json
+          if ($state.platform -ne 'win32') { throw "unexpected platform: $($state.platform)" }
+          $page = Invoke-WebRequest http://127.0.0.1:17980/ -UseBasicParsing
+          if ($page.Content -notmatch 'ProVpn') { throw 'UI not served from exe' }
+          $logo = Invoke-WebRequest http://127.0.0.1:17980/logo.svg -UseBasicParsing
+          if ($logo.StatusCode -ne 200) { throw 'logo.svg not served' }
+          Stop-Process -Id $p.Id -Force
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ProVpn-win-x64
+          path: provpn/dist/ProVpn.exe
+          if-no-files-found: error
