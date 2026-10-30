@@ -6,7 +6,17 @@ const path = require('node:path');
 const { app, BrowserWindow, Menu, dialog, shell } = require('electron');
 
 process.env.PROVPN_NO_BROWSER = '1';
+const fs = require('node:fs');
 const { server, CONFIG, detectElevation } = require('./server.js');
+
+// Software rendering fallback for machines/VMs where the GPU process cannot start
+// (Chromium then aborts at launch). Enable with --disable-gpu, PROVPN_NO_GPU=1,
+// or an empty file named "disable-gpu" next to the profiles folder.
+const noGpuFile = path.join(path.dirname(CONFIG.profilesDir), 'disable-gpu');
+if (process.argv.includes('--disable-gpu') || process.env.PROVPN_NO_GPU || fs.existsSync(noGpuFile)) {
+  app.disableHardwareAcceleration();
+  app.commandLine.appendSwitch('disable-gpu');
+}
 
 const ORIGIN = `http://localhost:${CONFIG.port}`;
 let win = null;

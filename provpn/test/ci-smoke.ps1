@@ -14,6 +14,7 @@ function Try-Launch($label, $path) {
   Stop-App
   $env:PROVPN_PORT = '17980'
   $env:ELECTRON_ENABLE_LOGGING = '1'
+  $env:PROVPN_NO_GPU = '1'   # CI runner has no usable GPU process
   $r = [ordered]@{ label = $label; ok = $false; note = '' }
   if (-not (Test-Path $path)) { $r.note = "missing $path"; return $r }
   $p = Start-Process -FilePath $path -PassThru -RedirectStandardError "err-$label.txt" -RedirectStandardOutput "out-$label.txt"
@@ -29,8 +30,16 @@ function Try-Launch($label, $path) {
     $r.note = 'not serving'
   } else {
     $r.platform = $state.platform
-    $page = Invoke-WebRequest http://127.0.0.1:17980/ -UseBasicParsing
-    $r.ui = ($page.Content -match 'ProVpn')
+    $http = @()
+    foreach ($u in '/', '/index.html', '/logo.svg', '/app.js') {
+      try {
+        $x = Invoke-WebRequest ("http://127.0.0.1:17980" + $u) -UseBasicParsing
+        $http += "$u=$($x.StatusCode)/$($x.Content.Length)"
+        if ($u -eq '/') { $page = $x }
+      } catch { $http += "$u=ERR($($_.Exception.Message))" }
+    }
+    $r.http = ($http -join ',')
+    $r.ui = [bool]($page -and ($page.Content -match 'ProVpn'))
     Start-Sleep -Seconds 4
     $wins = Get-Process | Where-Object { $_.ProcessName -like 'ProVpn*' -and $_.MainWindowTitle } | ForEach-Object { "$($_.ProcessName)=[$($_.MainWindowTitle)]" }
     $r.windows = ($wins -join ';')
@@ -40,6 +49,11 @@ function Try-Launch($label, $path) {
   $r.out = Tail "out-$label.txt"
   return $r
 }
+
+try {
+  $asar = (& npx --no-install asar list dist\win-unpacked\resources\app.asar 2>&1 | Select-Object -First 25) -join ' '
+  Annotate 'notice' "ASAR: $asar"
+} catch { Annotate 'notice' "ASAR list failed: $($_.Exception.Message)" }
 
 $results = @()
 $results += , (Try-Launch 'portable' 'dist\ProVpn.exe')
